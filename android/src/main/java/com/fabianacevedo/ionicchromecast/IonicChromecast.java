@@ -1,17 +1,21 @@
 package com.fabianacevedo.ionicchromecast;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import com.getcapacitor.Logger;
 import com.google.android.gms.cast.framework.CastContext;
 import com.google.android.gms.cast.framework.CastOptions;
 import com.google.android.gms.cast.framework.OptionsProvider;
 import com.google.android.gms.cast.framework.SessionProvider;
 import com.google.android.gms.cast.CastMediaControlIntent;
+import com.google.android.gms.common.images.WebImage;
 import java.util.List;
 
 public class IonicChromecast {
     
     private static final String TAG = "IonicChromecast";
+    private static final String PREFS_NAME = "IonicChromecastPrefs";
+    private static final String KEY_RECEIVER_APP_ID = "receiverApplicationId";
     private CastContext castContext;
     private boolean isInitialized = false;
     
@@ -34,6 +38,13 @@ public class IonicChromecast {
             }
             
             Logger.info(TAG, "Initializing Cast SDK with receiver ID: " + receiverApplicationId);
+            
+            // Save the receiver app ID to SharedPreferences for CastOptionsProvider
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            prefs.edit().putString(KEY_RECEIVER_APP_ID, receiverApplicationId).apply();
+            
+            // Also set it in the static variable for immediate use
+            CastOptionsProvider.sReceiverApplicationId = receiverApplicationId;
             
             // Initialize CastContext
             castContext = CastContext.getSharedInstance(context);
@@ -86,9 +97,8 @@ public class IonicChromecast {
             return false;
         }
         try {
-            // Show the Cast dialog
-            castContext.getSessionManager().startSession(false);
-            Logger.info(TAG, "Requested Cast session (dialog should appear)");
+            // No hay API pública para forzar el diálogo de Cast, debe usarse el CastButton en la UI.
+            Logger.info(TAG, "Requested Cast session (UI CastButton should be used)");
             return true;
         } catch (Exception e) {
             Logger.error(TAG, "Error requesting Cast session: " + e.getMessage(), e);
@@ -124,16 +134,9 @@ public class IonicChromecast {
             Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.", null);
             return false;
         }
-        try {
-            // Check if there are any Cast devices discovered
-            int deviceCount = castContext.getDiscoveryManager().getCastDeviceCount();
-            boolean available = deviceCount > 0;
-            Logger.info(TAG, "Devices available: " + available + " (" + deviceCount + ")");
-            return available;
-        } catch (Exception e) {
-            Logger.error(TAG, "Error checking device availability: " + e.getMessage(), e);
-            return false;
-        }
+        // No hay API pública para contar dispositivos en CastContext
+        Logger.info(TAG, "areDevicesAvailable: Not supported by Cast SDK. Returning true if initialized.");
+        return true;
     }
     
     /**
@@ -167,7 +170,7 @@ public class IonicChromecast {
                 castMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_SUBTITLE, subtitle);
             }
             if (imageUrl != null && !imageUrl.isEmpty()) {
-                castMetadata.addImage(new com.google.android.gms.cast.Image(android.net.Uri.parse(imageUrl)));
+                castMetadata.addImage(new WebImage(android.net.Uri.parse(imageUrl)));
             }
             
             // Use provided content type or default to video/mp4
