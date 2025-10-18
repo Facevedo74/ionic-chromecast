@@ -29,7 +29,7 @@ public class IonicChromecast {
             }
             
             if (receiverApplicationId == null || receiverApplicationId.isEmpty()) {
-                Logger.error(TAG, "Receiver Application ID is required");
+                Logger.error(TAG, "Receiver Application ID is required", null);
                 return false;
             }
             
@@ -43,7 +43,7 @@ public class IonicChromecast {
                 Logger.info(TAG, "Cast SDK initialized successfully");
                 return true;
             } else {
-                Logger.error(TAG, "Failed to get CastContext");
+                Logger.error(TAG, "Failed to get CastContext", null);
                 return false;
             }
             
@@ -82,7 +82,7 @@ public class IonicChromecast {
      */
     public boolean requestSession(Context context) {
         if (!isInitialized || castContext == null) {
-            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.");
+            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.", null);
             return false;
         }
         try {
@@ -102,7 +102,7 @@ public class IonicChromecast {
      */
     public boolean isSessionActive() {
         if (!isInitialized || castContext == null) {
-            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.");
+            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.", null);
             return false;
         }
         try {
@@ -121,7 +121,7 @@ public class IonicChromecast {
      */
     public boolean areDevicesAvailable() {
         if (!isInitialized || castContext == null) {
-            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.");
+            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.", null);
             return false;
         }
         try {
@@ -147,12 +147,12 @@ public class IonicChromecast {
      */
     public boolean loadMedia(String url, String title, String subtitle, String imageUrl, String contentType) {
         if (!isInitialized || castContext == null) {
-            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.");
+            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.", null);
             return false;
         }
         try {
             if (url == null || url.isEmpty()) {
-                Logger.error(TAG, "Media URL is required");
+                Logger.error(TAG, "Media URL is required", null);
                 return false;
             }
             
@@ -181,7 +181,7 @@ public class IonicChromecast {
             
             com.google.android.gms.cast.framework.CastSession session = castContext.getSessionManager().getCurrentCastSession();
             if (session == null || !session.isConnected()) {
-                Logger.error(TAG, "No active Cast session");
+                Logger.error(TAG, "No active Cast session", null);
                 return false;
             }
             
