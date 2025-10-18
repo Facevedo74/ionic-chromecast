@@ -5,10 +5,12 @@ A Capacitor plugin for integrating Google Cast SDK (Chromecast) with Ionic/Capac
 ## Features
 
 - ✅ Initialize Google Cast SDK
+- ✅ Session management (request, check status)
+- ✅ Device discovery
+- ✅ Media playback with rich metadata
 - ✅ Android support
+- ✅ Event listeners
 - 🚧 iOS support (coming soon)
-- 🚧 Session management
-- 🚧 Media playback control
 
 ## Install
 
@@ -19,61 +21,315 @@ npx cap sync
 
 ## Android Configuration
 
-The plugin automatically configures the necessary permissions and Cast options. However, you may want to customize the default receiver application ID.
+The plugin automatically configures the necessary permissions and Cast options:
+- `INTERNET`
+- `ACCESS_NETWORK_STATE`
+- `ACCESS_WIFI_STATE`
 
-### Default Receiver App ID
+### Requirements
+- Android API 23+
+- Google Play Services
+- Chromecast device on the same WiFi network
 
-The plugin uses Google's default media receiver (`CC1AD845`) by default. You can override this by calling `initialize()` with your custom receiver application ID.
+## Quick Start
 
-## Usage
-
-### Initialize the Cast SDK
-
-Before using any Cast functionality, you must initialize the SDK:
+### 1. Initialize the Cast SDK
 
 ```typescript
 import { IonicChromecast } from 'ionic-chromecast';
 
-// Initialize with default media receiver
-await IonicChromecast.initialize({
-  receiverApplicationId: 'CC1AD845' // Default Media Receiver
-});
-
-// Or use your custom receiver app ID
-await IonicChromecast.initialize({
-  receiverApplicationId: 'YOUR_RECEIVER_APP_ID'
-});
+// In your app.component.ts or main initialization
+async initializeCast() {
+  const result = await IonicChromecast.initialize({
+    receiverApplicationId: 'CC1AD845' // Default Media Receiver
+  });
+  
+  if (result.success) {
+    console.log('✅ Cast SDK ready!');
+  }
+}
 ```
 
-### Best Practices
+### 2. Check for Available Devices
 
-- Call `initialize()` early in your app lifecycle (e.g., in `app.component.ts`)
-- Initialize only once per app session
-- Handle initialization errors appropriately
+```typescript
+async checkDevices() {
+  const { available } = await IonicChromecast.areDevicesAvailable();
+  
+  if (available) {
+    console.log('📡 Chromecast devices found!');
+  } else {
+    console.log('❌ No devices available');
+  }
+}
+```
 
-## Example
+### 3. Start a Cast Session
+
+```typescript
+async startCasting() {
+  const result = await IonicChromecast.requestSession();
+  
+  if (result.success) {
+    console.log('🎬 Cast session started!');
+  }
+}
+```
+
+### 4. Load Media
+
+```typescript
+async playVideo() {
+  const result = await IonicChromecast.loadMedia({
+    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    metadata: {
+      title: 'Big Buck Bunny',
+      subtitle: 'Blender Foundation',
+      images: ['https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg'],
+      contentType: 'video/mp4',
+      duration: 596
+    }
+  });
+  
+  if (result.success) {
+    console.log('▶️ Video is playing on TV!');
+  }
+}
+```
+
+## Complete Examples
+
+### Example 1: Basic Cast Integration
 
 ```typescript
 import { Component, OnInit } from '@angular/core';
 import { IonicChromecast } from 'ionic-chromecast';
 
 @Component({
-  selector: 'app-root',
-  templateUrl: 'app.component.html',
+  selector: 'app-home',
+  templateUrl: 'home.page.html',
 })
-export class AppComponent implements OnInit {
+export class HomePage implements OnInit {
+  
+  castAvailable = false;
+  sessionActive = false;
   
   async ngOnInit() {
-    try {
-      const result = await IonicChromecast.initialize({
-        receiverApplicationId: 'CC1AD845'
-      });
-      
-      if (result.success) {
-        console.log('Cast SDK initialized successfully');
+    // Initialize Cast SDK
+    await IonicChromecast.initialize({
+      receiverApplicationId: 'CC1AD845'
+    });
+    
+    // Check for devices
+    const { available } = await IonicChromecast.areDevicesAvailable();
+    this.castAvailable = available;
+  }
+  
+  async connectToTV() {
+    const result = await IonicChromecast.requestSession();
+    if (result.success) {
+      this.sessionActive = true;
+    }
+  }
+  
+  async checkSession() {
+    const { active } = await IonicChromecast.isSessionActive();
+    this.sessionActive = active;
+    return active;
+  }
+}
+```
+
+### Example 2: Video Player with Cast
+
+```typescript
+import { Component } from '@angular/core';
+import { IonicChromecast } from 'ionic-chromecast';
+
+@Component({
+  selector: 'app-player',
+  templateUrl: 'player.page.html',
+})
+export class PlayerPage {
+  
+  async castVideo(videoUrl: string, videoTitle: string, posterUrl: string) {
+    // Check if session is active
+    const { active } = await IonicChromecast.isSessionActive();
+    
+    if (!active) {
+      // Request session first
+      await IonicChromecast.requestSession();
+    }
+    
+    // Load the video
+    const result = await IonicChromecast.loadMedia({
+      url: videoUrl,
+      metadata: {
+        title: videoTitle,
+        subtitle: 'Your App Name',
+        images: [posterUrl],
+        contentType: 'video/mp4'
       }
-    } catch (error) {
-      console.error('Failed to initialize Cast SDK:', error);
+    });
+    
+    if (result.success) {
+      console.log('🎥 Now casting:', videoTitle);
+    }
+  }
+  
+  async castFromLibrary() {
+    const videos = [
+      {
+        title: 'Big Buck Bunny',
+        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+        poster: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg'
+      },
+      {
+        title: 'Elephants Dream',
+        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+        poster: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ElephantsDream.jpg'
+      }
+    ];
+    
+    // Cast first video
+    await this.castVideo(videos[0].url, videos[0].title, videos[0].poster);
+  }
+}
+```
+
+### Example 3: Advanced Cast Controls
+
+```typescript
+import { Component, OnDestroy } from '@angular/core';
+import { IonicChromecast } from 'ionic-chromecast';
+
+@Component({
+  selector: 'app-cast-control',
+  templateUrl: 'cast-control.page.html',
+})
+export class CastControlPage implements OnDestroy {
+  
+  private eventListeners: any[] = [];
+  
+  async ngOnInit() {
+    // Initialize
+    await IonicChromecast.initialize({
+      receiverApplicationId: 'CC1AD845'
+    });
+    
+    // Listen to events
+    this.setupEventListeners();
+  }
+  
+  async setupEventListeners() {
+    const sessionHandle = await IonicChromecast.addListener('sessionStarted', (event) => {
+      console.log('✅ Session started:', event);
+    });
+    
+    const mediaHandle = await IonicChromecast.addListener('mediaLoaded', (event) => {
+      console.log('🎬 Media loaded:', event);
+    });
+    
+    this.eventListeners.push(sessionHandle, mediaHandle);
+  }
+  
+  async fullCastWorkflow() {
+    // 1. Check for devices
+    const devicesResult = await IonicChromecast.areDevicesAvailable();
+    if (!devicesResult.available) {
+      alert('No Chromecast devices found. Make sure you are on the same WiFi network.');
+      return;
+    }
+    
+    // 2. Request session
+    const sessionResult = await IonicChromecast.requestSession();
+    if (!sessionResult.success) {
+      alert('Failed to connect to Chromecast');
+      return;
+    }
+    
+    // 3. Wait a moment for session to establish
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // 4. Load media
+    const mediaResult = await IonicChromecast.loadMedia({
+      url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      metadata: {
+        title: 'Big Buck Bunny',
+        subtitle: 'A Blender Open Movie',
+        studio: 'Blender Foundation',
+        images: [
+          'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg'
+        ],
+        contentType: 'video/mp4',
+        duration: 596 // seconds
+      }
+    });
+    
+    if (mediaResult.success) {
+      console.log('🎉 Successfully casting video!');
+    }
+  }
+  
+  ngOnDestroy() {
+    // Clean up listeners
+    this.eventListeners.forEach(handle => handle.remove());
+  }
+}
+```
+
+### Example 4: Cast Button Component
+
+```typescript
+// cast-button.component.ts
+import { Component, OnInit } from '@angular/core';
+import { IonicChromecast } from 'ionic-chromecast';
+
+@Component({
+  selector: 'app-cast-button',
+  template: `
+    <ion-button 
+      *ngIf="devicesAvailable" 
+      (click)="toggleCast()"
+      [color]="sessionActive ? 'primary' : 'medium'">
+      <ion-icon [name]="sessionActive ? 'wifi' : 'wifi-outline'"></ion-icon>
+      {{ sessionActive ? 'Casting' : 'Cast' }}
+    </ion-button>
+  `
+})
+export class CastButtonComponent implements OnInit {
+  
+  devicesAvailable = false;
+  sessionActive = false;
+  
+  async ngOnInit() {
+    await this.checkDevices();
+    await this.checkSession();
+    
+    // Check periodically
+    setInterval(() => {
+      this.checkDevices();
+      this.checkSession();
+    }, 5000);
+  }
+  
+  async checkDevices() {
+    const result = await IonicChromecast.areDevicesAvailable();
+    this.devicesAvailable = result.available;
+  }
+  
+  async checkSession() {
+    const result = await IonicChromecast.isSessionActive();
+    this.sessionActive = result.active;
+  }
+  
+  async toggleCast() {
+    if (this.sessionActive) {
+      // Session is active - could implement endSession() here
+      console.log('Session is active');
+    } else {
+      // Request new session
+      await IonicChromecast.requestSession();
     }
   }
 }
