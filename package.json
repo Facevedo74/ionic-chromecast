@@ -1,7 +1,7 @@
 {
   "name": "ionic-chromecast",
   "version": "0.0.1",
-  "description": "Hola",
+  "description": "Capacitor plugin for Google Cast SDK (Chromecast) integration with Android support",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
   "types": "dist/esm/index.d.ts",
@@ -27,7 +27,14 @@
   "keywords": [
     "capacitor",
     "plugin",
-    "native"
+    "native",
+    "chromecast",
+    "google-cast",
+    "cast-sdk",
+    "android",
+    "ionic",
+    "streaming",
+    "media"
   ],
   "scripts": {
     "verify": "npm run verify:ios && npm run verify:android && npm run verify:web",

@@ -11,14 +11,36 @@
   </head>
   <body>
     <main>
-      <h1>Capacitor Test Plugin Project</h1>
+      <h1>Ionic Chromecast Plugin Test</h1>
       <p>
-        This project can be used to test out the functionality of your plugin. Nothing in the
-        <em>example-app/</em> folder will be published to npm when using this template, so you can create away!
+        This is a test application for the Ionic Chromecast plugin. 
+        It demonstrates the initialize() method for Google Cast SDK.
       </p>
-      <label for="echoInput">Echo Text:</label>
-      <input type="text" id="echoInput" name="echoInput" value="Hello World!" />
-      <button onclick="testEcho()">Click Me!</button>
+      
+      <section style="margin: 20px 0; padding: 15px; border: 2px solid #ddd; border-radius: 8px;">
+        <h2>🎬 Cast SDK Status</h2>
+        <p id="castStatus" style="font-weight: bold;">Initializing...</p>
+      </section>
+      
+      <section style="margin: 20px 0; padding: 15px; border: 2px solid #ddd; border-radius: 8px;">
+        <h2>🧪 Test Echo Method</h2>
+        <label for="echoInput">Echo Text:</label>
+        <input type="text" id="echoInput" name="echoInput" value="Hello World!" style="margin: 10px 0; padding: 8px; width: 200px;" />
+        <br />
+        <button onclick="testEcho()" style="padding: 10px 20px; background: #3880ff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          Test Echo
+        </button>
+      </section>
+      
+      <section style="margin: 20px 0; padding: 15px; background: #f0f0f0; border-radius: 8px;">
+        <h3>📝 Instructions</h3>
+        <ol>
+          <li>Build and run this app on an Android device</li>
+          <li>Make sure your device is on the same WiFi network as a Chromecast device</li>
+          <li>The Cast SDK will initialize automatically on app load</li>
+          <li>Check the console for initialization logs</li>
+        </ol>
+      </section>
     </main>
 
     <script src="./js/example.js" type="module"></script>

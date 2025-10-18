@@ -1,0 +1,44 @@
+# Development files
+example-app/
+*.log
+*.tmp
+*.temp
+
+# Source files (we only ship compiled)
+src/
+
+# Build tools
+node_modules/
+.DS_Store
+.vscode/
+.idea/
+
+# Testing
+coverage/
+*.test.ts
+*.spec.ts
+
+# Documentation source
+.github/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+*.swp
+*.swo
+*~
+
+# CI/CD
+.travis.yml
+.circleci/
+.github/workflows/
+
+# Development configs
+.eslintrc*
+.prettierrc*
+tsconfig.json
+rollup.config.mjs
+CONTRIBUTING.md
