@@ -5,7 +5,6 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
-import androidx.media.MediaMetadataCompat;
 
 @CapacitorPlugin(name = "IonicChromecast")
 public class IonicChromecastPlugin extends Plugin {
@@ -102,22 +101,30 @@ public class IonicChromecastPlugin extends Plugin {
     public void loadMedia(PluginCall call) {
         String url = call.getString("url");
         JSObject metadataObj = call.getObject("metadata");
-        MediaMetadataCompat metadata = null;
+        
+        // Extract metadata fields
+        String title = null;
+        String subtitle = null;
+        String imageUrl = null;
+        String contentType = null;
+        
         if (metadataObj != null) {
-            MediaMetadataCompat.Builder builder = new MediaMetadataCompat.Builder();
-            if (metadataObj.has("title")) builder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, metadataObj.getString("title"));
-            if (metadataObj.has("subtitle")) builder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, metadataObj.getString("subtitle"));
+            title = metadataObj.getString("title");
+            subtitle = metadataObj.getString("subtitle");
+            contentType = metadataObj.getString("contentType");
+            
+            // Get the first image if available
             if (metadataObj.has("images")) {
-                // Only use the first image for now
-                String img = metadataObj.getJSONArray("images").optString(0, null);
-                if (img != null) builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, img);
+                try {
+                    imageUrl = metadataObj.getJSONArray("images").optString(0, null);
+                } catch (Exception e) {
+                    // Ignore if images array is malformed
+                }
             }
-            if (metadataObj.has("studio")) builder.putString(MediaMetadataCompat.METADATA_KEY_AUTHOR, metadataObj.getString("studio"));
-            if (metadataObj.has("contentType")) builder.putString(MediaMetadataCompat.METADATA_KEY_MEDIA_URI, metadataObj.getString("contentType"));
-            if (metadataObj.has("duration")) builder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, metadataObj.getLong("duration"));
-            metadata = builder.build();
         }
-        boolean success = implementation.loadMedia(url, metadata);
+        
+        boolean success = implementation.loadMedia(url, title, subtitle, imageUrl, contentType);
+        
         JSObject ret = new JSObject();
         ret.put("success", success);
         if (success) {

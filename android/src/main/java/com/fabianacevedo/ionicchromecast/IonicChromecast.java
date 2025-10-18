@@ -139,10 +139,13 @@ public class IonicChromecast {
     /**
      * Load media on the Cast device
      * @param url The media URL
-     * @param metadata Optional metadata (title, images, etc)
+     * @param title Optional title
+     * @param subtitle Optional subtitle/artist
+     * @param imageUrl Optional image URL
+     * @param contentType Optional content type (default: video/mp4)
      * @return true if media loaded successfully
      */
-    public boolean loadMedia(String url, MediaMetadataCompat metadata) {
+    public boolean loadMedia(String url, String title, String subtitle, String imageUrl, String contentType) {
         if (!isInitialized || castContext == null) {
             Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.");
             return false;
@@ -152,27 +155,36 @@ public class IonicChromecast {
                 Logger.error(TAG, "Media URL is required");
                 return false;
             }
+            
             // Build Cast media info
             com.google.android.gms.cast.MediaMetadata castMetadata = new com.google.android.gms.cast.MediaMetadata(com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MOVIE);
-            if (metadata != null) {
-                if (metadata.getString(MediaMetadataCompat.METADATA_KEY_TITLE) != null)
-                    castMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, metadata.getString(MediaMetadataCompat.METADATA_KEY_TITLE));
-                if (metadata.getString(MediaMetadataCompat.METADATA_KEY_ARTIST) != null)
-                    castMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_SUBTITLE, metadata.getString(MediaMetadataCompat.METADATA_KEY_ARTIST));
-                if (metadata.getString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI) != null)
-                    castMetadata.addImage(new com.google.android.gms.cast.Image(android.net.Uri.parse(metadata.getString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI))));
-                // Add more metadata fields as needed
+            
+            // Add metadata if provided
+            if (title != null && !title.isEmpty()) {
+                castMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, title);
             }
+            if (subtitle != null && !subtitle.isEmpty()) {
+                castMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_SUBTITLE, subtitle);
+            }
+            if (imageUrl != null && !imageUrl.isEmpty()) {
+                castMetadata.addImage(new com.google.android.gms.cast.Image(android.net.Uri.parse(imageUrl)));
+            }
+            
+            // Use provided content type or default to video/mp4
+            String finalContentType = (contentType != null && !contentType.isEmpty()) ? contentType : "video/mp4";
+            
             com.google.android.gms.cast.MediaInfo mediaInfo = new com.google.android.gms.cast.MediaInfo.Builder(url)
                 .setStreamType(com.google.android.gms.cast.MediaInfo.STREAM_TYPE_BUFFERED)
-                .setContentType(metadata != null && metadata.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_URI) != null ? metadata.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_URI) : "video/mp4")
+                .setContentType(finalContentType)
                 .setMetadata(castMetadata)
                 .build();
+            
             com.google.android.gms.cast.framework.CastSession session = castContext.getSessionManager().getCurrentCastSession();
             if (session == null || !session.isConnected()) {
                 Logger.error(TAG, "No active Cast session");
                 return false;
             }
+            
             session.getRemoteMediaClient().load(mediaInfo, true, 0);
             Logger.info(TAG, "Media loaded to Cast device: " + url);
             return true;
