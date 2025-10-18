@@ -1,6 +1,6 @@
 {
   "name": "ionic-chromecast",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Capacitor plugin for Google Cast SDK (Chromecast) integration with Android support",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
