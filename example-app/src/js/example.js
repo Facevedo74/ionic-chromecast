@@ -18,8 +18,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     const statusEl = document.getElementById('castStatus');
     
     try {
+        // Using Google's Default Media Receiver (CC1AD845)
+        // This ONLY works with whitelisted Google sample videos
         const result = await IonicChromecast.initialize({
-            receiverApplicationId: 'C0868879' // Styled Media Receiver (recommended for testing)
+            receiverApplicationId: 'CC1AD845' // Google Default Media Receiver
         });
         
         if (result.success) {
@@ -190,6 +192,10 @@ window.playVideo = async () => {
             sessionEl.textContent = '✅ Connected to Chromecast';
             sessionEl.style.color = 'green';
             appendLog('STEP 3: Session connected successfully');
+            
+            // STEP 3.5: Wait a moment for the session to fully stabilize
+            appendLog('STEP 3.5: Waiting 2s for session to stabilize...');
+            await new Promise(r => setTimeout(r, 2000));
         } else {
             appendLog('STEP 1: Session already active, skipping connection');
             sessionEl.textContent = '✅ Already connected';
@@ -200,14 +206,15 @@ window.playVideo = async () => {
         playEl.textContent = '⏳ Loading media to TV...';
         appendLog('STEP 4: Sending loadMedia request...');
         
+        // Using HTTP instead of HTTPS - some receivers require this
         const result = await IonicChromecast.loadMedia({
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+            url: 'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4', // Whitelisted Google sample video
             metadata: {
-                title: 'Big Buck Bunny',
+                title: 'Sintel',
                 subtitle: 'Blender Foundation',
-                images: ['https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg'],
+                images: ['http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/Sintel.jpg'],
                 contentType: 'video/mp4',
-                duration: 596
+                duration: 888
             }
         });
         

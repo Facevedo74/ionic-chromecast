@@ -194,23 +194,30 @@ public class IonicChromecast {
             
             // Add metadata if provided
             if (title != null && !title.isEmpty()) {
+                Logger.info(TAG, "Setting title: " + title);
                 castMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, title);
             }
             if (subtitle != null && !subtitle.isEmpty()) {
+                Logger.info(TAG, "Setting subtitle: " + subtitle);
                 castMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_SUBTITLE, subtitle);
             }
             if (imageUrl != null && !imageUrl.isEmpty()) {
+                Logger.info(TAG, "Setting image: " + imageUrl);
                 castMetadata.addImage(new WebImage(android.net.Uri.parse(imageUrl)));
             }
             
             // Use provided content type or default to video/mp4
             String finalContentType = (contentType != null && !contentType.isEmpty()) ? contentType : "video/mp4";
             
+            Logger.info(TAG, "📹 Building MediaInfo: URL=" + url + ", contentType=" + finalContentType);
+            
             com.google.android.gms.cast.MediaInfo mediaInfo = new com.google.android.gms.cast.MediaInfo.Builder(url)
                 .setStreamType(com.google.android.gms.cast.MediaInfo.STREAM_TYPE_BUFFERED)
                 .setContentType(finalContentType)
                 .setMetadata(castMetadata)
                 .build();
+            
+            Logger.info(TAG, "✅ MediaInfo built successfully");
             
             com.google.android.gms.cast.framework.CastSession session = castContext.getSessionManager().getCurrentCastSession();
             if (session == null || !session.isConnected()) {

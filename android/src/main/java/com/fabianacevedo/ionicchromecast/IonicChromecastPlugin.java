@@ -9,12 +9,10 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import android.text.TextUtils;
 import com.google.android.gms.cast.CastMediaControlIntent;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.fragment.app.DialogFragment;
-import androidx.fragment.app.FragmentManager;
-import androidx.mediarouter.app.MediaRouteDialogFactory;
-import androidx.mediarouter.app.MediaRouteChooserDialogFragment;
+import androidx.mediarouter.app.MediaRouteChooserDialog;
 import androidx.mediarouter.media.MediaRouteSelector;
 import androidx.mediarouter.media.MediaRouter;
+import android.content.DialogInterface;
 
 // New imports for Cast session/media events
 import com.google.android.gms.cast.framework.CastContext;
@@ -188,9 +186,8 @@ public class IonicChromecastPlugin extends Plugin {
 
                 com.getcapacitor.Logger.info("IonicChromecast", "🚀 Showing Cast device selector via MediaRouteChooserDialog...");
                 
-                // Use MediaRouteChooserDialogFragment - the proper way to show Cast device selector
+                // Use MediaRouteChooserDialog - the proper way (as per caprockapps implementation)
                 AppCompatActivity activity = (AppCompatActivity) getActivity();
-                FragmentManager fm = activity.getSupportFragmentManager();
                 
                 String receiverId = CastOptionsProvider.sReceiverApplicationId;
                 if (TextUtils.isEmpty(receiverId)) {
@@ -201,11 +198,18 @@ public class IonicChromecastPlugin extends Plugin {
                         .addControlCategory(CastMediaControlIntent.categoryForCast(receiverId))
                         .build();
                 
-                MediaRouteChooserDialogFragment dialogFragment = new MediaRouteChooserDialogFragment();
-                dialogFragment.setRouteSelector(selector);
+                MediaRouteChooserDialog chooserDialog = new MediaRouteChooserDialog(activity, androidx.appcompat.R.style.Theme_AppCompat_NoActionBar);
+                chooserDialog.setRouteSelector(selector);
+                chooserDialog.setCanceledOnTouchOutside(true);
+                chooserDialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
+                    @Override
+                    public void onCancel(DialogInterface dialog) {
+                        com.getcapacitor.Logger.info("IonicChromecast", "User cancelled Cast device selection");
+                    }
+                });
                 
                 // Show the dialog
-                dialogFragment.show(fm, "chromecast-device-chooser");
+                chooserDialog.show();
                 
                 com.getcapacitor.Logger.info("IonicChromecast", "✅ Cast device selector dialog displayed");
 
@@ -263,6 +267,9 @@ public class IonicChromecastPlugin extends Plugin {
         String url = call.getString("url");
         JSObject metadataObj = call.getObject("metadata");
         
+        com.getcapacitor.Logger.info("IonicChromecast", "📥 loadMedia called with URL: " + url);
+        com.getcapacitor.Logger.info("IonicChromecast", "📥 metadata object: " + (metadataObj != null ? metadataObj.toString() : "null"));
+        
         // Extract metadata fields
         String title = null;
         String subtitle = null;
@@ -274,12 +281,16 @@ public class IonicChromecastPlugin extends Plugin {
             subtitle = metadataObj.getString("subtitle");
             contentType = metadataObj.getString("contentType");
             
+            com.getcapacitor.Logger.info("IonicChromecast", "📥 Extracted - title: " + title + ", subtitle: " + subtitle + ", contentType: " + contentType);
+            
             // Get the first image if available
             if (metadataObj.has("images")) {
                 try {
                     imageUrl = metadataObj.getJSONArray("images").optString(0, null);
+                    com.getcapacitor.Logger.info("IonicChromecast", "📥 Extracted imageUrl: " + imageUrl);
                 } catch (Exception e) {
                     // Ignore if images array is malformed
+                    com.getcapacitor.Logger.error("IonicChromecast", "Error parsing images array", e);
                 }
             }
         }
