@@ -2,6 +2,8 @@ package com.fabianacevedo.ionicchromecast;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Handler;
+import android.os.Looper;
 import com.getcapacitor.Logger;
 import com.google.android.gms.cast.framework.CastContext;
 import com.google.android.gms.cast.framework.CastOptions;
@@ -10,6 +12,17 @@ import com.google.android.gms.cast.framework.SessionProvider;
 import com.google.android.gms.cast.CastMediaControlIntent;
 import com.google.android.gms.common.images.WebImage;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+// New imports for improved media loading
+import com.google.android.gms.cast.MediaLoadRequestData;
+import com.google.android.gms.cast.framework.media.RemoteMediaClient;
+import com.google.android.gms.common.api.PendingResult;
+// Nuevos imports para esperar sesión activa
+import com.google.android.gms.cast.framework.CastSession;
+import com.google.android.gms.cast.framework.SessionManagerListener;
 
 public class IonicChromecast {
     
@@ -46,17 +59,33 @@ public class IonicChromecast {
             // Also set it in the static variable for immediate use
             CastOptionsProvider.sReceiverApplicationId = receiverApplicationId;
             
-            // Initialize CastContext
-            castContext = CastContext.getSharedInstance(context);
-            
-            if (castContext != null) {
-                isInitialized = true;
-                Logger.info(TAG, "Cast SDK initialized successfully");
-                return true;
-            } else {
-                Logger.error(TAG, "Failed to get CastContext", null);
-                return false;
-            }
+            // Ensure CastContext is obtained on the main thread
+            final AtomicBoolean initSuccess = new AtomicBoolean(false);
+            final CountDownLatch latch = new CountDownLatch(1);
+            Handler mainHandler = new Handler(Looper.getMainLooper());
+            mainHandler.post(() -> {
+                try {
+                    // Use application context per Cast SDK recommendations
+                    Context appCtx = context.getApplicationContext();
+                    castContext = CastContext.getSharedInstance(appCtx);
+                    if (castContext != null) {
+                        isInitialized = true;
+                        Logger.info(TAG, "Cast SDK initialized successfully");
+                        initSuccess.set(true);
+                    } else {
+                        Logger.error(TAG, "Failed to get CastContext", null);
+                        initSuccess.set(false);
+                    }
+                } catch (Exception e) {
+                    Logger.error(TAG, "Error initializing Cast SDK on main thread: " + e.getMessage(), e);
+                    initSuccess.set(false);
+                } finally {
+                    latch.countDown();
+                }
+            });
+            // Wait up to 5 seconds for initialization to complete
+            latch.await(5, TimeUnit.SECONDS);
+            return initSuccess.get();
             
         } catch (Exception e) {
             Logger.error(TAG, "Error initializing Cast SDK: " + e.getMessage(), e);
@@ -116,8 +145,9 @@ public class IonicChromecast {
             return false;
         }
         try {
-            boolean active = castContext.getSessionManager().getCurrentCastSession() != null;
-            Logger.info(TAG, "Session active: " + active);
+            com.google.android.gms.cast.framework.CastSession session = castContext.getSessionManager().getCurrentCastSession();
+            boolean active = (session != null && session.isConnected());
+            Logger.info(TAG, "isSessionActive check: session=" + (session != null) + ", connected=" + (session != null && session.isConnected()) + ", result=" + active);
             return active;
         } catch (Exception e) {
             Logger.error(TAG, "Error checking session status: " + e.getMessage(), e);
@@ -184,16 +214,103 @@ public class IonicChromecast {
             
             com.google.android.gms.cast.framework.CastSession session = castContext.getSessionManager().getCurrentCastSession();
             if (session == null || !session.isConnected()) {
-                Logger.error(TAG, "No active Cast session", null);
+                Logger.info(TAG, "No active Cast session yet. Waiting up to 10s...");
+                boolean connected = waitForActiveSession(10_000);
+                if (!connected) {
+                    Logger.error(TAG, "No active Cast session after waiting", null);
+                    return false;
+                }
+                session = castContext.getSessionManager().getCurrentCastSession();
+            }
+
+            RemoteMediaClient rmc = session.getRemoteMediaClient();
+            if (rmc == null) {
+                Logger.error(TAG, "RemoteMediaClient is null (session not ready)", null);
                 return false;
             }
-            
-            session.getRemoteMediaClient().load(mediaInfo, true, 0);
-            Logger.info(TAG, "Media loaded to Cast device: " + url);
-            return true;
+
+            // Build a load request with autoplay
+            MediaLoadRequestData requestData = new MediaLoadRequestData.Builder()
+                .setMediaInfo(mediaInfo)
+                .setAutoplay(true)
+                .setCurrentTime(0L)
+                .build();
+
+            Logger.info(TAG, "Sending media load request: URL=" + url + ", contentType=" + finalContentType);
+
+            // Send load and wait briefly for the result so we can report success/failure
+            final AtomicBoolean loadSuccess = new AtomicBoolean(false);
+            final CountDownLatch latch = new CountDownLatch(1);
+            try {
+                PendingResult<RemoteMediaClient.MediaChannelResult> pending = rmc.load(requestData);
+                pending.setResultCallback(result -> {
+                    boolean ok = result != null && result.getStatus() != null && result.getStatus().isSuccess();
+                    loadSuccess.set(ok);
+                    if (ok) {
+                        Logger.info(TAG, "Media load success");
+                    } else {
+                        String msg = (result != null && result.getStatus() != null) ? String.valueOf(result.getStatus().getStatusCode()) : "unknown";
+                        Logger.error(TAG, "Media load failed. Status=" + msg, null);
+                    }
+                    latch.countDown();
+                });
+                // Wait up to 6 seconds for a result
+                latch.await(6, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                Logger.error(TAG, "Error sending media load request: " + e.getMessage(), e);
+                return false;
+            }
+
+            return loadSuccess.get();
         } catch (Exception e) {
             Logger.error(TAG, "Error loading media: " + e.getMessage(), e);
             return false;
+        }
+    }
+
+    // Helper: espera una sesión activa hasta timeoutMs
+    private boolean waitForActiveSession(long timeoutMs) {
+        if (castContext == null) return false;
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicBoolean active = new AtomicBoolean(false);
+
+        SessionManagerListener<CastSession> listener = new SessionManagerListener<CastSession>() {
+            @Override public void onSessionStarted(CastSession session, String sessionId) {
+                active.set(session != null && session.isConnected());
+                latch.countDown();
+            }
+            @Override public void onSessionResumed(CastSession session, boolean wasSuspended) {
+                active.set(session != null && session.isConnected());
+                latch.countDown();
+            }
+            @Override public void onSessionStartFailed(CastSession session, int error) { latch.countDown(); }
+            @Override public void onSessionResumeFailed(CastSession session, int error) { latch.countDown(); }
+            @Override public void onSessionSuspended(CastSession session, int reason) { }
+            @Override public void onSessionEnded(CastSession session, int error) { }
+            @Override public void onSessionEnding(CastSession session) { }
+            @Override public void onSessionStarting(CastSession session) { }
+            @Override public void onSessionResuming(CastSession session, String sessionId) { }
+        };
+
+        try {
+            // Si ya hay sesión conectada, devolver inmediatamente
+            CastSession current = castContext.getSessionManager().getCurrentCastSession();
+            if (current != null && current.isConnected()) {
+                return true;
+            }
+            castContext.getSessionManager().addSessionManagerListener(listener, CastSession.class);
+            // Esperar hasta timeout
+            latch.await(timeoutMs, TimeUnit.MILLISECONDS);
+            // Verificar de nuevo
+            current = castContext.getSessionManager().getCurrentCastSession();
+            return current != null && current.isConnected() || active.get();
+        } catch (Exception e) {
+            Logger.error(TAG, "Error waiting for Cast session: " + e.getMessage(), e);
+            return false;
+        } finally {
+            try {
+                castContext.getSessionManager().removeSessionManagerListener(listener, CastSession.class);
+            } catch (Exception ignore) {}
         }
     }
 }

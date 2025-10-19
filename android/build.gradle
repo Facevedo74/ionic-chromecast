@@ -3,6 +3,8 @@ ext {
     androidxAppCompatVersion = project.hasProperty('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.7.0'
     androidxJunitVersion = project.hasProperty('androidxJunitVersion') ? rootProject.ext.androidxJunitVersion : '1.2.1'
     androidxEspressoCoreVersion = project.hasProperty('androidxEspressoCoreVersion') ? rootProject.ext.androidxEspressoCoreVersion : '3.6.1'
+    // Add a default version for MediaRouter if not provided by root project
+    androidxMediaRouterVersion = project.hasProperty('androidxMediaRouterVersion') ? rootProject.ext.androidxMediaRouterVersion : '1.6.0'
 }
 
 buildscript {
@@ -37,8 +39,9 @@ android {
         abortOnError false
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_21
-        targetCompatibility JavaVersion.VERSION_21
+        // Use Java 17 for broader compatibility with current Android toolchains
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 }
 
@@ -56,6 +59,9 @@ dependencies {
     // Google Cast SDK
     implementation 'com.google.android.gms:play-services-cast-framework:21.5.0'
     
+    // AndroidX MediaRouter (for Cast chooser/dialog)
+    implementation "androidx.mediarouter:mediarouter:$androidxMediaRouterVersion"
+
     // AndroidX Media (required for MediaMetadataCompat)
     implementation 'androidx.media:media:1.7.0'
     
