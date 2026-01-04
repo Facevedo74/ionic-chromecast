@@ -23,6 +23,8 @@ import com.google.android.gms.common.api.PendingResult;
 // Nuevos imports para esperar sesión activa
 import com.google.android.gms.cast.framework.CastSession;
 import com.google.android.gms.cast.framework.SessionManagerListener;
+import androidx.mediarouter.media.MediaRouter;
+import androidx.mediarouter.media.MediaRouteSelector;
 
 public class IonicChromecast {
     
@@ -31,6 +33,12 @@ public class IonicChromecast {
     private static final String KEY_RECEIVER_APP_ID = "receiverApplicationId";
     private CastContext castContext;
     private boolean isInitialized = false;
+    private Context appContext;
+    
+    // Nueva variable para el descubrimiento de dispositivos
+    private MediaRouter mediaRouter;
+    private MediaRouteSelector mediaRouteSelector;
+    private final Object discoveryLock = new Object();
     
     /**
      * Initialize the Google Cast SDK with the provided receiver application ID
@@ -49,7 +57,7 @@ public class IonicChromecast {
                 Logger.error(TAG, "Receiver Application ID is required", null);
                 return false;
             }
-            
+
             Logger.info(TAG, "Initializing Cast SDK with receiver ID: " + receiverApplicationId);
             
             // Save the receiver app ID to SharedPreferences for CastOptionsProvider
@@ -66,8 +74,8 @@ public class IonicChromecast {
             mainHandler.post(() -> {
                 try {
                     // Use application context per Cast SDK recommendations
-                    Context appCtx = context.getApplicationContext();
-                    castContext = CastContext.getSharedInstance(appCtx);
+                    appContext = context.getApplicationContext();
+                    castContext = CastContext.getSharedInstance(appContext);
                     if (castContext != null) {
                         isInitialized = true;
                         Logger.info(TAG, "Cast SDK initialized successfully");
@@ -85,6 +93,13 @@ public class IonicChromecast {
             });
             // Wait up to 5 seconds for initialization to complete
             latch.await(5, TimeUnit.SECONDS);
+            // Save the context for later use
+            this.appContext = context.getApplicationContext();
+            // Prepare MediaRouter and selector for device discovery
+            this.mediaRouter = MediaRouter.getInstance(appContext);
+            this.mediaRouteSelector = new MediaRouteSelector.Builder()
+                .addControlCategory(CastMediaControlIntent.categoryForCast(CastOptionsProvider.sReceiverApplicationId != null ? CastOptionsProvider.sReceiverApplicationId : "CC1AD845"))
+                .build();
             return initSuccess.get();
             
         } catch (Exception e) {
@@ -160,13 +175,49 @@ public class IonicChromecast {
      * @return true if devices are available, false otherwise
      */
     public boolean areDevicesAvailable() {
-        if (!isInitialized || castContext == null) {
+        if (!isInitialized || castContext == null || appContext == null || mediaRouter == null || mediaRouteSelector == null) {
             Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.", null);
             return false;
         }
-        // No hay API pública para contar dispositivos en CastContext
-        Logger.info(TAG, "areDevicesAvailable: Not supported by Cast SDK. Returning true if initialized.");
-        return true;
+        final AtomicBoolean found = new AtomicBoolean(false);
+        final CountDownLatch latch = new CountDownLatch(1);
+        MediaRouter.Callback discoveryCallback = new MediaRouter.Callback() {
+            @Override
+            public void onRouteAdded(MediaRouter router, MediaRouter.RouteInfo route) {
+                if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
+                    found.set(true);
+                    latch.countDown();
+                }
+            }
+            @Override
+            public void onRouteChanged(MediaRouter router, MediaRouter.RouteInfo route) {
+                if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
+                    found.set(true);
+                    latch.countDown();
+                }
+            }
+        };
+        try {
+            synchronized (discoveryLock) {
+                mediaRouter.addCallback(mediaRouteSelector, discoveryCallback, MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
+                // También revisa rutas ya conocidas
+                for (MediaRouter.RouteInfo route : mediaRouter.getRoutes()) {
+                    if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
+                        found.set(true);
+                        break;
+                    }
+                }
+                if (!found.get()) {
+                    latch.await(2500, TimeUnit.MILLISECONDS); // Espera hasta 2.5s por descubrimiento
+                }
+                mediaRouter.removeCallback(discoveryCallback);
+            }
+            Logger.info(TAG, "areDevicesAvailable: found=" + found.get());
+            return found.get();
+        } catch (Exception e) {
+            Logger.error(TAG, "Error checking available devices: " + e.getMessage(), e);
+            return false;
+        }
     }
     
     /**
