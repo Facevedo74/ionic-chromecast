@@ -141,7 +141,22 @@ public class IonicChromecast {
         Runnable check = () -> {
             try {
                 CastSession s = castContext.getSessionManager().getCurrentCastSession();
-                active.set(s != null && s.isConnected());
+                boolean connected = s != null && s.isConnected();
+
+                // Evita falsos positivos: requiere appId y RemoteMediaClient disponibles
+                if (connected) {
+                    try {
+                        String appId = s.getApplicationMetadata() != null ? s.getApplicationMetadata().getApplicationId() : "";
+                        RemoteMediaClient rmc = s.getRemoteMediaClient();
+                        if (rmc == null || appId == null || appId.isEmpty()) {
+                            connected = false;
+                        }
+                    } catch (Exception ignored) {
+                        connected = false;
+                    }
+                }
+
+                active.set(connected);
             } catch (Exception e) {
                 Logger.error(TAG, "Error checking session status: " + e.getMessage(), e);
                 active.set(false);

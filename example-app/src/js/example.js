@@ -211,13 +211,17 @@ window.playVideo = async () => {
         playEl.textContent = '⏳ Loading media to TV...';
         appendLog('STEP 4: Sending loadMedia request...');
         
+        const videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+        const contentType = 'video/mp4'; // Si usas HLS, cambia a 'application/x-mpegurl'
+        appendLog(`STEP 4: loadMedia url=${videoUrl} ct=${contentType} receiver=${DEFAULT_RECEIVER_ID}`);
+
         const result = await IonicChromecast.loadMedia({
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+            url: videoUrl,
             metadata: {
                 title: 'Big Buck Bunny',
                 subtitle: 'Blender Foundation',
                 images: ['https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg'],
-                contentType: 'video/mp4',
+                contentType,
                 duration: 596
             }
         });

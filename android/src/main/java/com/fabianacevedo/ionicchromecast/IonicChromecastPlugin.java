@@ -8,6 +8,10 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 import android.text.TextUtils;
 import com.google.android.gms.cast.CastMediaControlIntent;
+import com.google.android.gms.cast.framework.CastSession;
+import com.google.android.gms.cast.framework.Session;
+import com.google.android.gms.cast.framework.SessionManager;
+import com.google.android.gms.cast.framework.SessionManagerListener;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.mediarouter.app.MediaRouteChooserDialog;
 import androidx.mediarouter.media.MediaRouteSelector;
@@ -18,6 +22,7 @@ import android.content.DialogInterface;
 public class IonicChromecastPlugin extends Plugin {
 
     private IonicChromecast implementation = new IonicChromecast();
+    private SessionManagerListener<CastSession> sessionListener;
 
     /**
      * Initialize the Google Cast SDK
@@ -42,10 +47,74 @@ public class IonicChromecastPlugin extends Plugin {
         }
         
         if (success) {
+            setupSessionListener();
             call.resolve(ret);
         } else {
             call.reject("Failed to initialize Cast SDK", ret);
         }
+    }
+
+    private void setupSessionListener() {
+        try {
+            SessionManager sm = implementation.getCastContext() != null ? implementation.getCastContext().getSessionManager() : null;
+            if (sm == null) return;
+
+            if (sessionListener == null) {
+                sessionListener = new SessionManagerListener<CastSession>() {
+                    @Override public void onSessionStarting(CastSession session) {
+                        JSObject data = new JSObject();
+                        data.put("state", "starting");
+                        notifyListeners("sessionStarted", data);
+                    }
+
+                    @Override public void onSessionStarted(CastSession session, String sessionId) {
+                        JSObject data = new JSObject();
+                        data.put("state", "started");
+                        data.put("sessionId", sessionId);
+                        notifyListeners("sessionStarted", data);
+                    }
+
+                    @Override public void onSessionStartFailed(CastSession session, int i) {
+                        JSObject data = new JSObject();
+                        data.put("state", "startFailed");
+                        data.put("code", i);
+                        notifyListeners("sessionEnded", data);
+                    }
+
+                    @Override public void onSessionEnding(CastSession session) {
+                        JSObject data = new JSObject();
+                        data.put("state", "ending");
+                        notifyListeners("sessionEnded", data);
+                    }
+
+                    @Override public void onSessionEnded(CastSession session, int i) {
+                        JSObject data = new JSObject();
+                        data.put("state", "ended");
+                        data.put("code", i);
+                        notifyListeners("sessionEnded", data);
+                    }
+
+                    @Override public void onSessionResuming(CastSession session, String s) {}
+                    @Override public void onSessionResumed(CastSession session, boolean b) {}
+                    @Override public void onSessionResumeFailed(CastSession session, int i) {}
+                    @Override public void onSessionSuspended(CastSession session, int i) {}
+                };
+            }
+
+            sm.removeSessionManagerListener(sessionListener, CastSession.class);
+            sm.addSessionManagerListener(sessionListener, CastSession.class);
+        } catch (Exception ignored) {}
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        super.handleOnDestroy();
+        try {
+            SessionManager sm = implementation.getCastContext() != null ? implementation.getCastContext().getSessionManager() : null;
+            if (sm != null && sessionListener != null) {
+                sm.removeSessionManagerListener(sessionListener, CastSession.class);
+            }
+        } catch (Exception ignored) {}
     }
 
     /**
