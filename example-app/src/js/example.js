@@ -15,7 +15,7 @@ const DEFAULT_MEDIA_RECEIVER_ID = 'CC1AD845';      // receiver por defecto, reco
 const CAST_VIDEOS_SAMPLE_ID = '4F8B3483';          // receiver demo CAF (por si el default falla)
 
 // Usa el receiver CAF de demo (CastVideos) para mayor compatibilidad
-const DEFAULT_RECEIVER_ID = DEFAULT_MEDIA_RECEIVER_ID;
+const DEFAULT_RECEIVER_ID = CAST_VIDEOS_SAMPLE_ID;
 
 // Initialize Cast SDK when app loads
 window.addEventListener('DOMContentLoaded', async () => {
