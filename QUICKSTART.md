@@ -115,7 +115,6 @@ Here are methods you can implement next:
 
 ### Session Management
 - `startSession()` - Start casting session
-- `endSession()` - End current session
 - `getSessionState()` - Get current session status
 
 ### Media Control

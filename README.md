@@ -8,6 +8,7 @@ A Capacitor plugin for integrating Google Cast SDK (Chromecast) with Ionic/Capac
 - ✅ Session management (request, check status)
 - ✅ Device discovery
 - ✅ Media playback with rich metadata
+- ✅ End active Cast session from app
 - ✅ Android support
 - ✅ Event listeners
 - 🚧 iOS support (coming soon)
@@ -94,6 +95,14 @@ async playVideo() {
   
   if (result.success) {
     console.log('▶️ Video is playing on TV!');
+  }
+}
+
+// Optional: end the current Cast session from the app
+async stopCasting() {
+  const result = await IonicChromecast.endSession();
+  if (result.success) {
+    console.log('⏹ Cast session ended');
   }
 }
 ```
@@ -275,6 +284,10 @@ export class CastControlPage implements OnDestroy {
   ngOnDestroy() {
     // Clean up listeners
     this.eventListeners.forEach(handle => handle.remove());
+  }
+
+  async stopCast() {
+    await IonicChromecast.endSession();
   }
 }
 ```
