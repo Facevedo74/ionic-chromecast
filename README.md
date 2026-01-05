@@ -41,7 +41,8 @@ import { IonicChromecast } from 'ionic-chromecast';
 // In your app.component.ts or main initialization
 async initializeCast() {
   const result = await IonicChromecast.initialize({
-    receiverApplicationId: 'CC1AD845' // Default Media Receiver
+    // Prefer CastVideos CAF receiver for reliable UI on TV. Use 'CC1AD845' if you need the default.
+    receiverApplicationId: '4F8B3483'
   });
   
   if (result.success) {
@@ -538,3 +539,8 @@ Listen to Chromecast events (Android only)
 <code>'sessionStarted' | 'sessionEnded' | 'mediaLoaded' | 'mediaError' | 'deviceAvailable' | 'deviceUnavailable' | 'volumeChanged' | 'playbackStatusChanged'</code>
 
 </docgen-api>
+
+## Troubleshooting
+- No Cast UI on TV after connecting: use the CastVideos CAF receiver ID `4F8B3483` instead of the default `CC1AD845` when calling `initialize`.
+- Media returns success but nothing plays: confirm a session is active (`isSessionActive`), then retry `loadMedia` with a known-good HTTPS MP4 (e.g., BigBuckBunny).
+- Devices not found: ensure the phone and Chromecast are on the same WiFi and Google Play Services is up to date.
