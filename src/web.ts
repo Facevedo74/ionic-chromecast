@@ -40,6 +40,11 @@ export class IonicChromecastWeb extends WebPlugin implements IonicChromecastPlug
     console.warn('loadMedia() is not supported on web.');
     return { success: false, message: 'Media casting only available on Android.' };
   }
+
+  async endSession(): Promise<{ success: boolean; message?: string }> {
+    console.warn('endSession() is not supported on web.');
+    return { success: false, message: 'Session control only available on Android.' };
+  }
   addListener(
     _eventName: ChromecastEventType,
     _listenerFunc: (event: ChromecastEvent) => void

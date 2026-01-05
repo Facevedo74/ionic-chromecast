@@ -51,7 +51,7 @@
     "clean": "rimraf ./dist",
     "watch": "tsc --watch",
     "prepublishOnly": "npm run build",
-    "android:run": "cd example-app && npm install && npx cap sync android && npx cap run android",
+    "android:run": "cd example-app && npm install && npm run build && npx cap sync android && npx cap run android",
     "android:serve": "cd example-app && npm install && npm run dev -- --host --port 5173",
     "android:run:live": "cd example-app && npm install && npx cap sync android && npx cap run android --livereload --external --livereload-url=http://localhost:5173"
   },

@@ -85,6 +85,11 @@ export interface IonicChromecastPlugin {
   loadMedia(options: LoadMediaOptions): Promise<{ success: boolean; message?: string }>;
 
   /**
+   * End the current Cast session (Android only)
+   */
+  endSession(): Promise<{ success: boolean; message?: string }>;
+
+  /**
    * Listen to Chromecast events (Android only)
    */
   addListener(

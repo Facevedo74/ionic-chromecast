@@ -346,6 +346,7 @@ export class CastButtonComponent implements OnInit {
 * [`isSessionActive()`](#issessionactive)
 * [`areDevicesAvailable()`](#aredevicesavailable)
 * [`loadMedia(...)`](#loadmedia)
+* [`endSession()`](#endsession)
 * [`addListener(ChromecastEventType, ...)`](#addlistenerchromecasteventtype-)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
@@ -438,6 +439,19 @@ Load media on the Cast device (Android only)
 | Param         | Type                                                          |
 | ------------- | ------------------------------------------------------------- |
 | **`options`** | <code><a href="#loadmediaoptions">LoadMediaOptions</a></code> |
+
+**Returns:** <code>Promise&lt;{ success: boolean; message?: string; }&gt;</code>
+
+--------------------
+
+
+### endSession()
+
+```typescript
+endSession() => Promise<{ success: boolean; message?: string; }>
+```
+
+End the current Cast session (Android only)
 
 **Returns:** <code>Promise&lt;{ success: boolean; message?: string; }&gt;</code>
 

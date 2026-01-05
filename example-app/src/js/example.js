@@ -10,19 +10,25 @@ function appendLog(msg) {
   el.prepend(li);
 }
 
-// IDs disponibles para prueba
-const DEFAULT_MEDIA_RECEIVER_ID = 'CC1AD845';      // receiver por defecto, recomendado
-const CAST_VIDEOS_SAMPLE_ID = '4F8B3483';          // receiver demo CAF (por si el default falla)
+// IDs disponibles para prueba (usar siempre el Default Media Receiver a menos que se sobreescriba)
+const DEFAULT_MEDIA_RECEIVER_ID = 'CC1AD845';      // Default Media Receiver (compatible y sin UI extra)
+const CAST_VIDEOS_SAMPLE_ID = '4F8B3483';          // Receiver demo CAF (solo para pruebas explícitas)
 
-// Usa el receiver CAF de demo (CastVideos) para mayor compatibilidad
-const DEFAULT_RECEIVER_ID = CAST_VIDEOS_SAMPLE_ID;
+// Permite sobreescribir el receiver por query param ?receiverId=XXXX; si no, usa el default seguro
+const queryReceiverId = new URLSearchParams(window.location.search).get('receiverId');
+const DEFAULT_RECEIVER_ID = queryReceiverId || DEFAULT_MEDIA_RECEIVER_ID;
 
 // Initialize Cast SDK when app loads
 window.addEventListener('DOMContentLoaded', async () => {
     console.log('Initializing Chromecast...');
     appendLog('App loaded');
+    appendLog(`Receiver ID in use: ${DEFAULT_RECEIVER_ID}${queryReceiverId ? ' (from URL)' : ' (default)'}`);
     
     const statusEl = document.getElementById('castStatus');
+    const receiverEl = document.getElementById('receiverIdInfo');
+    if (receiverEl) {
+        receiverEl.textContent = `Receiver ID: ${DEFAULT_RECEIVER_ID}${queryReceiverId ? ' (URL override)' : ' (default)'}`;
+    }
     
     try {
         const result = await IonicChromecast.initialize({
@@ -243,5 +249,30 @@ window.playVideo = async () => {
         playEl.style.color = 'orange';
         console.error('playVideo error', e);
         appendLog('❌ EXCEPTION: ' + (e?.message || e));
+    }
+}
+
+// Stop active Cast session
+window.stopCasting = async () => {
+    const sessionEl = document.getElementById('sessionStatus');
+    const playEl = document.getElementById('playStatus');
+    sessionEl.textContent = '⏳ Ending session...';
+    sessionEl.style.color = '#333';
+
+    try {
+        const result = await IonicChromecast.endSession();
+        appendLog('stopCasting => ' + JSON.stringify(result || {}));
+        if (result.success) {
+            sessionEl.textContent = '⏹ Session ended';
+            sessionEl.style.color = '#333';
+            if (playEl) { playEl.textContent = '—'; playEl.style.color = '#333'; }
+        } else {
+            sessionEl.textContent = '❌ Could not end session';
+            sessionEl.style.color = 'red';
+        }
+    } catch (e) {
+        appendLog('stopCasting error: ' + (e?.message || e));
+        sessionEl.textContent = '⚠️ Error ending session';
+        sessionEl.style.color = 'orange';
     }
 }

@@ -20,6 +20,7 @@
       <section style="margin: 20px 0; padding: 15px; border: 2px solid #ddd; border-radius: 8px;">
         <h2>🎬 Cast SDK Status</h2>
         <p id="castStatus" style="font-weight: bold;">Initializing...</p>
+        <p id="receiverIdInfo" style="margin-top: 6px; color: #555;">Receiver ID: —</p>
       </section>
       
       <section style="margin: 20px 0; padding: 15px; border: 2px solid #ddd; border-radius: 8px;">
@@ -49,6 +50,11 @@
             Start Casting
           </button>
           <span id="sessionStatus" style="margin-left: 10px; font-weight: 600;">—</span>
+        </div>
+        <div style="margin-top: 12px;">
+          <button onclick="stopCasting()" style="padding: 10px 20px; background: #222428; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Stop Cast Session
+          </button>
         </div>
         <div style="margin-top: 12px;">
           <button onclick="playVideo()" style="padding: 10px 20px; background: #f04141; color: white; border: none; border-radius: 4px; cursor: pointer;">

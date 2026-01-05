@@ -132,6 +132,17 @@ public class IonicChromecastPlugin extends Plugin {
 
         getActivity().runOnUiThread(() -> {
             try {
+                // Si hay una sesión con otro appId, termínala para forzar el receiver actual
+                try {
+                    SessionManager sm = implementation.getCastContext().getSessionManager();
+                    CastSession current = sm != null ? sm.getCurrentCastSession() : null;
+                    String wantedApp = CastOptionsProvider.sReceiverApplicationId;
+                    String currentApp = (current != null && current.getApplicationMetadata() != null) ? current.getApplicationMetadata().getApplicationId() : "";
+                    if (current != null && current.isConnected() && wantedApp != null && !wantedApp.isEmpty() && !wantedApp.equals(currentApp)) {
+                        sm.endCurrentSession(true);
+                    }
+                } catch (Exception ignored) {}
+
                 AppCompatActivity activity = (AppCompatActivity) getActivity();
                 String receiverId = CastOptionsProvider.sReceiverApplicationId;
                 if (TextUtils.isEmpty(receiverId)) receiverId = "CC1AD845";
@@ -197,6 +208,24 @@ public class IonicChromecastPlugin extends Plugin {
             call.resolve(ret);
         } else {
             call.reject("Failed to load media", ret);
+        }
+    }
+
+    /**
+     * Finaliza la sesión Cast activa
+     */
+    @PluginMethod
+    public void endSession(PluginCall call) {
+        boolean ended = implementation.endSession();
+        JSObject ret = new JSObject();
+        ret.put("success", ended);
+        String err = implementation.getLastError();
+        if (err != null && !err.isEmpty()) ret.put("error", err);
+
+        if (ended) {
+            call.resolve(ret);
+        } else {
+            call.reject("Failed to end session", ret);
         }
     }
 

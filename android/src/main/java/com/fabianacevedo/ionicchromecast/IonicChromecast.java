@@ -6,6 +6,7 @@ import android.os.Handler;
 import android.os.Looper;
 import com.getcapacitor.Logger;
 import com.google.android.gms.cast.framework.CastContext;
+import com.google.android.gms.cast.framework.SessionManager;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import java.util.concurrent.CountDownLatch;
@@ -183,6 +184,59 @@ public class IonicChromecast {
     }
 
     /**
+     * Finaliza la sesión Cast actual, si existe
+     */
+    public boolean endSession() {
+        if (!isInitialized || castContext == null) {
+            lastError = "Cast SDK not initialized. Call initialize() first.";
+            Logger.error(TAG, lastError, null);
+            return false;
+        }
+
+        lastError = null;
+        final AtomicBoolean success = new AtomicBoolean(false);
+        final CountDownLatch latch = new CountDownLatch(1);
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+
+        Runnable endRunnable = () -> {
+            try {
+                SessionManager sm = castContext.getSessionManager();
+                if (sm == null) {
+                    lastError = "SessionManager is null";
+                    Logger.error(TAG, lastError, null);
+                    latch.countDown();
+                    return;
+                }
+
+                CastSession session = sm.getCurrentCastSession();
+                if (session == null || !session.isConnected()) {
+                    lastError = "No active Cast session to end";
+                    Logger.error(TAG, lastError, null);
+                    latch.countDown();
+                    return;
+                }
+
+                sm.endCurrentSession(true);
+                success.set(true);
+                Logger.info(TAG, "Cast session ended by request");
+            } catch (Exception e) {
+                lastError = "Error ending session: " + e.getMessage();
+                Logger.error(TAG, lastError, e);
+            } finally {
+                latch.countDown();
+            }
+        };
+
+        mainHandler.post(endRunnable);
+
+        try {
+            latch.await(4, TimeUnit.SECONDS);
+        } catch (InterruptedException ignored) {}
+
+        return success.get();
+    }
+
+    /**
      * Verifica si hay dispositivos Cast disponibles mediante MediaRouter
      */
     public boolean areDevicesAvailable() {
@@ -303,7 +357,14 @@ public class IonicChromecast {
                     return;
                 }
 
-                Logger.info(TAG, "loadMedia: url=" + url + ", contentType=" + contentType);
+                // Cache buster para evitar que el receiver siga mostrando el media anterior
+                String effectiveUrl = url;
+                try {
+                    String suffix = (url != null && url.contains("?")) ? "&" : "?";
+                    effectiveUrl = url + suffix + "_cb=" + System.currentTimeMillis();
+                } catch (Exception ignored) {}
+
+                Logger.info(TAG, "loadMedia: url=" + effectiveUrl + ", contentType=" + contentType);
 
                 MediaMetadata md = new MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE);
                 if (title != null && !title.isEmpty()) md.putString(MediaMetadata.KEY_TITLE, title);
@@ -311,7 +372,7 @@ public class IonicChromecast {
                 if (imageUrl != null && !imageUrl.isEmpty()) md.addImage(new WebImage(android.net.Uri.parse(imageUrl)));
 
                 String ct = (contentType != null && !contentType.isEmpty()) ? contentType : "video/mp4";
-                MediaInfo mediaInfo = new MediaInfo.Builder(url)
+                MediaInfo mediaInfo = new MediaInfo.Builder(effectiveUrl)
                     .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
                     .setContentType(ct)
                     .setMetadata(md)
@@ -324,6 +385,15 @@ public class IonicChromecast {
                     done.countDown();
                     return;
                 }
+
+                // Si la sesión es de otro appId, registra aviso pero intenta cargar igualmente
+                try {
+                    String currentAppId = session.getApplicationMetadata() != null ? session.getApplicationMetadata().getApplicationId() : "";
+                    String desiredAppId = CastOptionsProvider.sReceiverApplicationId;
+                    if (desiredAppId != null && !desiredAppId.isEmpty() && !desiredAppId.equals(currentAppId)) {
+                        Logger.warn(TAG, "Session appId=" + currentAppId + " differs from desired=" + desiredAppId + "; attempting load on current session");
+                    }
+                } catch (Exception ignored) {}
 
                 try {
                     String appId = session.getApplicationMetadata() != null ? session.getApplicationMetadata().getApplicationId() : "";
@@ -338,6 +408,14 @@ public class IonicChromecast {
                     done.countDown();
                     return;
                 }
+
+                // Detener lo que esté reproduciendo antes de cargar
+                try {
+                    PendingResult<RemoteMediaClient.MediaChannelResult> stopPending = rmc.stop();
+                    if (stopPending != null) {
+                        stopPending.await(3, TimeUnit.SECONDS);
+                    }
+                } catch (Exception ignored) {}
 
                 MediaLoadRequestData req = new MediaLoadRequestData.Builder()
                     .setMediaInfo(mediaInfo)
