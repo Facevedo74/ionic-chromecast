@@ -366,7 +366,8 @@ public class IonicChromecast {
 
                 Logger.info(TAG, "loadMedia: url=" + effectiveUrl + ", contentType=" + contentType);
 
-                MediaMetadata md = new MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE);
+                // Use GENERIC to ensure subtitle surfaces in Cast UI overlays.
+                MediaMetadata md = new MediaMetadata(MediaMetadata.MEDIA_TYPE_GENERIC);
                 if (title != null && !title.isEmpty()) md.putString(MediaMetadata.KEY_TITLE, title);
                 if (subtitle != null && !subtitle.isEmpty()) md.putString(MediaMetadata.KEY_SUBTITLE, subtitle);
                 if (imageUrl != null && !imageUrl.isEmpty()) md.addImage(new WebImage(android.net.Uri.parse(imageUrl)));
