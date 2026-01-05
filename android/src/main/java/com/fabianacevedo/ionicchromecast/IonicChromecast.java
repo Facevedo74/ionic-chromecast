@@ -6,25 +6,21 @@ import android.os.Handler;
 import android.os.Looper;
 import com.getcapacitor.Logger;
 import com.google.android.gms.cast.framework.CastContext;
-import com.google.android.gms.cast.framework.CastOptions;
-import com.google.android.gms.cast.framework.OptionsProvider;
-import com.google.android.gms.cast.framework.SessionProvider;
-import com.google.android.gms.cast.CastMediaControlIntent;
-import com.google.android.gms.common.images.WebImage;
-import java.util.List;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-// New imports for improved media loading
-import com.google.android.gms.cast.MediaLoadRequestData;
-import com.google.android.gms.cast.framework.media.RemoteMediaClient;
-import com.google.android.gms.common.api.PendingResult;
-// Nuevos imports para esperar sesión activa
-import com.google.android.gms.cast.framework.CastSession;
-import com.google.android.gms.cast.framework.SessionManagerListener;
 import androidx.mediarouter.media.MediaRouter;
 import androidx.mediarouter.media.MediaRouteSelector;
+import com.google.android.gms.cast.CastMediaControlIntent;
+import com.google.android.gms.cast.MediaMetadata;
+import com.google.android.gms.cast.MediaInfo;
+import com.google.android.gms.cast.framework.CastSession;
+import com.google.android.gms.cast.framework.media.RemoteMediaClient;
+import com.google.android.gms.cast.MediaLoadRequestData;
+import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.common.images.WebImage;
 
 public class IonicChromecast {
     
@@ -34,8 +30,7 @@ public class IonicChromecast {
     private CastContext castContext;
     private boolean isInitialized = false;
     private Context appContext;
-    
-    // Nueva variable para el descubrimiento de dispositivos
+    private String lastError = null;
     private MediaRouter mediaRouter;
     private MediaRouteSelector mediaRouteSelector;
     private final Object discoveryLock = new Object();
@@ -48,6 +43,7 @@ public class IonicChromecast {
      */
     public boolean initialize(Context context, String receiverApplicationId) {
         try {
+            lastError = null;
             if (isInitialized) {
                 Logger.info(TAG, "Cast SDK already initialized");
                 return true;
@@ -59,126 +55,154 @@ public class IonicChromecast {
             }
 
             Logger.info(TAG, "Initializing Cast SDK with receiver ID: " + receiverApplicationId);
+            Logger.info(TAG, "Thread at init: " + Thread.currentThread().getName());
             
-            // Save the receiver app ID to SharedPreferences for CastOptionsProvider
             SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             prefs.edit().putString(KEY_RECEIVER_APP_ID, receiverApplicationId).apply();
             
             // Also set it in the static variable for immediate use
             CastOptionsProvider.sReceiverApplicationId = receiverApplicationId;
             
-            // Ensure CastContext is obtained on the main thread
-            final AtomicBoolean initSuccess = new AtomicBoolean(false);
-            final CountDownLatch latch = new CountDownLatch(1);
-            Handler mainHandler = new Handler(Looper.getMainLooper());
-            mainHandler.post(() -> {
+            int playStatus = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context);
+            Logger.info(TAG, "Google Play Services status=" + playStatus);
+            if (playStatus != ConnectionResult.SUCCESS) {
+                lastError = "Google Play Services status=" + playStatus;
+                Logger.error(TAG, lastError, null);
+                return false;
+            }
+            // Obtener CastContext y preparar MediaRouter siempre en el hilo principal
+            appContext = context.getApplicationContext();
+            Runnable initRunnable = () -> {
                 try {
-                    // Use application context per Cast SDK recommendations
-                    appContext = context.getApplicationContext();
                     castContext = CastContext.getSharedInstance(appContext);
                     if (castContext != null) {
-                        isInitialized = true;
-                        Logger.info(TAG, "Cast SDK initialized successfully");
-                        initSuccess.set(true);
-                    } else {
-                        Logger.error(TAG, "Failed to get CastContext", null);
-                        initSuccess.set(false);
+                        mediaRouter = MediaRouter.getInstance(appContext);
+                        mediaRouteSelector = new MediaRouteSelector.Builder()
+                            .addControlCategory(CastMediaControlIntent.categoryForCast(CastOptionsProvider.sReceiverApplicationId != null ? CastOptionsProvider.sReceiverApplicationId : "CC1AD845"))
+                            .build();
                     }
                 } catch (Exception e) {
-                    Logger.error(TAG, "Error initializing Cast SDK on main thread: " + e.getMessage(), e);
-                    initSuccess.set(false);
-                } finally {
-                    latch.countDown();
+                    lastError = "Error initializing on main thread: " + e.getMessage();
+                    Logger.error(TAG, lastError, e);
                 }
-            });
-            // Wait up to 5 seconds for initialization to complete
-            latch.await(5, TimeUnit.SECONDS);
-            // Save the context for later use
-            this.appContext = context.getApplicationContext();
-            // Prepare MediaRouter and selector for device discovery
-            this.mediaRouter = MediaRouter.getInstance(appContext);
-            this.mediaRouteSelector = new MediaRouteSelector.Builder()
-                .addControlCategory(CastMediaControlIntent.categoryForCast(CastOptionsProvider.sReceiverApplicationId != null ? CastOptionsProvider.sReceiverApplicationId : "CC1AD845"))
-                .build();
-            return initSuccess.get();
+            };
+
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                initRunnable.run();
+            } else {
+                final CountDownLatch latch = new CountDownLatch(1);
+                Handler mainHandler = new Handler(Looper.getMainLooper());
+                mainHandler.post(() -> {
+                    initRunnable.run();
+                    latch.countDown();
+                });
+                boolean awaited = latch.await(6, TimeUnit.SECONDS);
+                if (!awaited && castContext == null && lastError == null) {
+                    lastError = "Timed out waiting for CastContext on main thread";
+                    Logger.error(TAG, lastError, null);
+                }
+            }
+
+            if (castContext != null) {
+                isInitialized = true;
+                Logger.info(TAG, "Cast SDK initialized successfully");
+            } else {
+                if (lastError == null) lastError = "Failed to get CastContext";
+                Logger.error(TAG, lastError, null);
+            }
+            return isInitialized;
             
         } catch (Exception e) {
-            Logger.error(TAG, "Error initializing Cast SDK: " + e.getMessage(), e);
+            lastError = "Error initializing Cast SDK: " + e.getMessage();
+            Logger.error(TAG, lastError, e);
             return false;
         }
     }
+
+    public String getLastError() {
+        return lastError;
+    }
     
-    /**
-     * Check if the Cast SDK is initialized
-     * @return true if initialized
-     */
     public boolean isInitialized() {
         return isInitialized;
     }
-    
-    /**
-     * Get the CastContext instance
-     * @return CastContext or null if not initialized
-     */
     public CastContext getCastContext() {
         return castContext;
     }
 
-    public String echo(String value) {
-        Logger.info("Echo", value);
-        return value;
-    }
-    
     /**
-     * Request a Cast session
-     * Shows the Cast dialog and starts a session if a device is selected
-     * @param context The application context
-     * @return true if session started, false otherwise
-     */
-    public boolean requestSession(Context context) {
-        if (!isInitialized || castContext == null) {
-            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.", null);
-            return false;
-        }
-        try {
-            // No hay API pública para forzar el diálogo de Cast, debe usarse el CastButton en la UI.
-            Logger.info(TAG, "Requested Cast session (UI CastButton should be used)");
-            return true;
-        } catch (Exception e) {
-            Logger.error(TAG, "Error requesting Cast session: " + e.getMessage(), e);
-            return false;
-        }
-    }
-    
-    /**
-     * Check if there is an active Cast session
-     * @return true if session is active, false otherwise
+     * Verifica si hay sesión activa
      */
     public boolean isSessionActive() {
-        if (!isInitialized || castContext == null) {
-            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.", null);
-            return false;
+        if (!isInitialized || castContext == null) return false;
+
+        // Consultar SessionManager en el hilo principal para obtener el estado real
+        final AtomicBoolean active = new AtomicBoolean(false);
+        Runnable check = () -> {
+            try {
+                CastSession s = castContext.getSessionManager().getCurrentCastSession();
+                active.set(s != null && s.isConnected());
+            } catch (Exception e) {
+                Logger.error(TAG, "Error checking session status: " + e.getMessage(), e);
+                active.set(false);
+            }
+        };
+
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            check.run();
+            return active.get();
         }
+
         try {
-            com.google.android.gms.cast.framework.CastSession session = castContext.getSessionManager().getCurrentCastSession();
-            boolean active = (session != null && session.isConnected());
-            Logger.info(TAG, "isSessionActive check: session=" + (session != null) + ", connected=" + (session != null && session.isConnected()) + ", result=" + active);
-            return active;
-        } catch (Exception e) {
-            Logger.error(TAG, "Error checking session status: " + e.getMessage(), e);
-            return false;
+            CountDownLatch latch = new CountDownLatch(1);
+            new Handler(Looper.getMainLooper()).post(() -> {
+                check.run();
+                latch.countDown();
+            });
+            latch.await(3, TimeUnit.SECONDS);
+        } catch (InterruptedException ie) {
+            Logger.error(TAG, "Interrupted while checking session", ie);
         }
+
+        return active.get();
     }
-    
+
     /**
-     * Check if there are available Cast devices
-     * @return true if devices are available, false otherwise
+     * Verifica si hay dispositivos Cast disponibles mediante MediaRouter
      */
     public boolean areDevicesAvailable() {
         if (!isInitialized || castContext == null || appContext == null || mediaRouter == null || mediaRouteSelector == null) {
             Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.", null);
             return false;
         }
+
+        // MediaRouter debe consultarse en el hilo principal para obtener rutas válidas
+        final AtomicBoolean result = new AtomicBoolean(false);
+        Runnable scanRunnable = () -> result.set(runDeviceScan());
+
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            scanRunnable.run();
+            return result.get();
+        }
+
+        try {
+            CountDownLatch latch = new CountDownLatch(1);
+            new Handler(Looper.getMainLooper()).post(() -> {
+                scanRunnable.run();
+                latch.countDown();
+            });
+            latch.await(6, TimeUnit.SECONDS);
+        } catch (InterruptedException ie) {
+            Logger.error(TAG, "Interrupted while checking devices", ie);
+        }
+
+        return result.get();
+    }
+
+    /**
+     * Realiza el escaneo de rutas Cast usando MediaRouter.
+     */
+    private boolean runDeviceScan() {
         final AtomicBoolean found = new AtomicBoolean(false);
         final CountDownLatch latch = new CountDownLatch(1);
         MediaRouter.Callback discoveryCallback = new MediaRouter.Callback() {
@@ -189,6 +213,7 @@ public class IonicChromecast {
                     latch.countDown();
                 }
             }
+
             @Override
             public void onRouteChanged(MediaRouter router, MediaRouter.RouteInfo route) {
                 if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
@@ -197,19 +222,38 @@ public class IonicChromecast {
                 }
             }
         };
+
         try {
             synchronized (discoveryLock) {
-                mediaRouter.addCallback(mediaRouteSelector, discoveryCallback, MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY);
-                // También revisa rutas ya conocidas
+                mediaRouter.addCallback(
+                    mediaRouteSelector,
+                    discoveryCallback,
+                    MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY | MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN
+                );
+
+                // Revisar rutas conocidas inmediatamente
                 for (MediaRouter.RouteInfo route : mediaRouter.getRoutes()) {
                     if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
                         found.set(true);
                         break;
                     }
                 }
+
+                // Esperar algo de tiempo para descubrimiento activo
                 if (!found.get()) {
-                    latch.await(2500, TimeUnit.MILLISECONDS); // Espera hasta 2.5s por descubrimiento
+                    latch.await(4000, TimeUnit.MILLISECONDS);
                 }
+
+                // Revisión final de rutas conocidas antes de salir
+                if (!found.get()) {
+                    for (MediaRouter.RouteInfo route : mediaRouter.getRoutes()) {
+                        if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
+                            found.set(true);
+                            break;
+                        }
+                    }
+                }
+
                 mediaRouter.removeCallback(discoveryCallback);
             }
             Logger.info(TAG, "areDevicesAvailable: found=" + found.get());
@@ -219,156 +263,140 @@ public class IonicChromecast {
             return false;
         }
     }
-    
+
     /**
-     * Load media on the Cast device
-     * @param url The media URL
-     * @param title Optional title
-     * @param subtitle Optional subtitle/artist
-     * @param imageUrl Optional image URL
-     * @param contentType Optional content type (default: video/mp4)
-     * @return true if media loaded successfully
+     * Envía media al dispositivo Cast (flujo básico)
      */
     public boolean loadMedia(String url, String title, String subtitle, String imageUrl, String contentType) {
         if (!isInitialized || castContext == null) {
-            Logger.error(TAG, "Cast SDK not initialized. Call initialize() first.", null);
+            lastError = "Cast SDK not initialized. Call initialize() first.";
+            Logger.error(TAG, lastError, null);
             return false;
         }
-        try {
-            if (url == null || url.isEmpty()) {
-                Logger.error(TAG, "Media URL is required", null);
-                return false;
-            }
-            
-            // Build Cast media info
-            com.google.android.gms.cast.MediaMetadata castMetadata = new com.google.android.gms.cast.MediaMetadata(com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MOVIE);
-            
-            // Add metadata if provided
-            if (title != null && !title.isEmpty()) {
-                Logger.info(TAG, "Setting title: " + title);
-                castMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE, title);
-            }
-            if (subtitle != null && !subtitle.isEmpty()) {
-                Logger.info(TAG, "Setting subtitle: " + subtitle);
-                castMetadata.putString(com.google.android.gms.cast.MediaMetadata.KEY_SUBTITLE, subtitle);
-            }
-            if (imageUrl != null && !imageUrl.isEmpty()) {
-                Logger.info(TAG, "Setting image: " + imageUrl);
-                castMetadata.addImage(new WebImage(android.net.Uri.parse(imageUrl)));
-            }
-            
-            // Use provided content type or default to video/mp4
-            String finalContentType = (contentType != null && !contentType.isEmpty()) ? contentType : "video/mp4";
-            
-            Logger.info(TAG, "📹 Building MediaInfo: URL=" + url + ", contentType=" + finalContentType);
-            
-            com.google.android.gms.cast.MediaInfo mediaInfo = new com.google.android.gms.cast.MediaInfo.Builder(url)
-                .setStreamType(com.google.android.gms.cast.MediaInfo.STREAM_TYPE_BUFFERED)
-                .setContentType(finalContentType)
-                .setMetadata(castMetadata)
-                .build();
-            
-            Logger.info(TAG, "✅ MediaInfo built successfully");
-            
-            com.google.android.gms.cast.framework.CastSession session = castContext.getSessionManager().getCurrentCastSession();
-            if (session == null || !session.isConnected()) {
-                Logger.info(TAG, "No active Cast session yet. Waiting up to 10s...");
-                boolean connected = waitForActiveSession(10_000);
-                if (!connected) {
-                    Logger.error(TAG, "No active Cast session after waiting", null);
-                    return false;
-                }
-                session = castContext.getSessionManager().getCurrentCastSession();
-            }
 
-            RemoteMediaClient rmc = session.getRemoteMediaClient();
-            if (rmc == null) {
-                Logger.error(TAG, "RemoteMediaClient is null (session not ready)", null);
-                return false;
-            }
+        lastError = null;
+        final AtomicBoolean success = new AtomicBoolean(false);
+        final CountDownLatch done = new CountDownLatch(1);
+        Handler mainHandler = new Handler(Looper.getMainLooper());
 
-            // Build a load request with autoplay
-            MediaLoadRequestData requestData = new MediaLoadRequestData.Builder()
-                .setMediaInfo(mediaInfo)
-                .setAutoplay(true)
-                .setCurrentTime(0L)
-                .build();
-
-            Logger.info(TAG, "Sending media load request: URL=" + url + ", contentType=" + finalContentType);
-
-            // Send load and wait briefly for the result so we can report success/failure
-            final AtomicBoolean loadSuccess = new AtomicBoolean(false);
-            final CountDownLatch latch = new CountDownLatch(1);
+        Runnable loadRunnable = () -> {
             try {
-                PendingResult<RemoteMediaClient.MediaChannelResult> pending = rmc.load(requestData);
-                pending.setResultCallback(result -> {
-                    boolean ok = result != null && result.getStatus() != null && result.getStatus().isSuccess();
-                    loadSuccess.set(ok);
-                    if (ok) {
-                        Logger.info(TAG, "Media load success");
-                    } else {
-                        String msg = (result != null && result.getStatus() != null) ? String.valueOf(result.getStatus().getStatusCode()) : "unknown";
-                        Logger.error(TAG, "Media load failed. Status=" + msg, null);
+                if (url == null || url.isEmpty()) {
+                    lastError = "Media URL is required";
+                    Logger.error(TAG, lastError, null);
+                    done.countDown();
+                    return;
+                }
+
+                Logger.info(TAG, "loadMedia: url=" + url + ", contentType=" + contentType);
+
+                MediaMetadata md = new MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE);
+                if (title != null && !title.isEmpty()) md.putString(MediaMetadata.KEY_TITLE, title);
+                if (subtitle != null && !subtitle.isEmpty()) md.putString(MediaMetadata.KEY_SUBTITLE, subtitle);
+                if (imageUrl != null && !imageUrl.isEmpty()) md.addImage(new WebImage(android.net.Uri.parse(imageUrl)));
+
+                String ct = (contentType != null && !contentType.isEmpty()) ? contentType : "video/mp4";
+                MediaInfo mediaInfo = new MediaInfo.Builder(url)
+                    .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
+                    .setContentType(ct)
+                    .setMetadata(md)
+                    .build();
+
+                CastSession session = castContext.getSessionManager().getCurrentCastSession();
+                if (session == null || !session.isConnected()) {
+                    lastError = "No active Cast session";
+                    Logger.error(TAG, lastError, null);
+                    done.countDown();
+                    return;
+                }
+
+                try {
+                    String appId = session.getApplicationMetadata() != null ? session.getApplicationMetadata().getApplicationId() : "";
+                    String deviceName = session.getCastDevice() != null ? session.getCastDevice().getFriendlyName() : "";
+                    Logger.info(TAG, "Session connected. appId=" + appId + ", device=" + deviceName);
+                } catch (Exception ignored) {}
+
+                RemoteMediaClient rmc = session.getRemoteMediaClient();
+                if (rmc == null) {
+                    lastError = "RemoteMediaClient is null";
+                    Logger.error(TAG, lastError, null);
+                    done.countDown();
+                    return;
+                }
+
+                MediaLoadRequestData req = new MediaLoadRequestData.Builder()
+                    .setMediaInfo(mediaInfo)
+                    .setAutoplay(true)
+                    .setCurrentTime(0L)
+                    .build();
+
+                try {
+                    PendingResult<RemoteMediaClient.MediaChannelResult> pending = rmc.load(req);
+                    if (pending == null) {
+                        lastError = "rmc.load() returned null";
+                        Logger.error(TAG, lastError, null);
+                        done.countDown();
+                        return;
                     }
-                    latch.countDown();
-                });
-                // Wait up to 6 seconds for a result
-                latch.await(6, TimeUnit.SECONDS);
+
+                    pending.setResultCallback(result1 -> {
+                        if (result1 != null && result1.getStatus() != null && result1.getStatus().isSuccess()) {
+                            success.set(true);
+                            Logger.info(TAG, "Media load success");
+                        } else {
+                            int statusCode = (result1 != null && result1.getStatus() != null) ? result1.getStatus().getStatusCode() : -1;
+                            lastError = "Media load failed, statusCode=" + statusCode;
+                            Logger.error(TAG, lastError, null);
+                        }
+                        done.countDown();
+                    });
+                } catch (Exception e) {
+                    lastError = "Error sending media load request: " + e.getMessage();
+                    Logger.error(TAG, lastError, e);
+                    done.countDown();
+                }
             } catch (Exception e) {
-                Logger.error(TAG, "Error sending media load request: " + e.getMessage(), e);
-                return false;
+                lastError = "Error loading media: " + e.getMessage();
+                Logger.error(TAG, lastError, e);
+                done.countDown();
             }
-
-            return loadSuccess.get();
-        } catch (Exception e) {
-            Logger.error(TAG, "Error loading media: " + e.getMessage(), e);
-            return false;
-        }
-    }
-
-    // Helper: espera una sesión activa hasta timeoutMs
-    private boolean waitForActiveSession(long timeoutMs) {
-        if (castContext == null) return false;
-        final CountDownLatch latch = new CountDownLatch(1);
-        final AtomicBoolean active = new AtomicBoolean(false);
-
-        SessionManagerListener<CastSession> listener = new SessionManagerListener<CastSession>() {
-            @Override public void onSessionStarted(CastSession session, String sessionId) {
-                active.set(session != null && session.isConnected());
-                latch.countDown();
-            }
-            @Override public void onSessionResumed(CastSession session, boolean wasSuspended) {
-                active.set(session != null && session.isConnected());
-                latch.countDown();
-            }
-            @Override public void onSessionStartFailed(CastSession session, int error) { latch.countDown(); }
-            @Override public void onSessionResumeFailed(CastSession session, int error) { latch.countDown(); }
-            @Override public void onSessionSuspended(CastSession session, int reason) { }
-            @Override public void onSessionEnded(CastSession session, int error) { }
-            @Override public void onSessionEnding(CastSession session) { }
-            @Override public void onSessionStarting(CastSession session) { }
-            @Override public void onSessionResuming(CastSession session, String sessionId) { }
         };
 
+        // Always dispatch load to the main thread but wait off-main for completion
+        mainHandler.post(loadRunnable);
+
+        boolean awaited = false;
         try {
-            // Si ya hay sesión conectada, devolver inmediatamente
-            CastSession current = castContext.getSessionManager().getCurrentCastSession();
-            if (current != null && current.isConnected()) {
-                return true;
-            }
-            castContext.getSessionManager().addSessionManagerListener(listener, CastSession.class);
-            // Esperar hasta timeout
-            latch.await(timeoutMs, TimeUnit.MILLISECONDS);
-            // Verificar de nuevo
-            current = castContext.getSessionManager().getCurrentCastSession();
-            return current != null && current.isConnected() || active.get();
-        } catch (Exception e) {
-            Logger.error(TAG, "Error waiting for Cast session: " + e.getMessage(), e);
+            awaited = done.await(14, TimeUnit.SECONDS);
+        } catch (InterruptedException ie) {
+            lastError = "Interrupted while loading media";
+            Logger.error(TAG, lastError, ie);
             return false;
-        } finally {
-            try {
-                castContext.getSessionManager().removeSessionManagerListener(listener, CastSession.class);
-            } catch (Exception ignore) {}
         }
+
+        if (!awaited && !success.get()) {
+            try {
+                CastSession session = castContext.getSessionManager().getCurrentCastSession();
+                String appId = session != null && session.getApplicationMetadata() != null ? session.getApplicationMetadata().getApplicationId() : "";
+                String deviceName = session != null && session.getCastDevice() != null ? session.getCastDevice().getFriendlyName() : "";
+                lastError = "Media load timed out (appId=" + appId + ", device=" + deviceName + ")";
+            } catch (Exception e) {
+                lastError = "Media load timed out";
+            }
+            Logger.error(TAG, lastError, null);
+        }
+
+        if (!success.get() && (lastError == null || lastError.isEmpty())) {
+            try {
+                CastSession session = castContext.getSessionManager().getCurrentCastSession();
+                String appId = session != null && session.getApplicationMetadata() != null ? session.getApplicationMetadata().getApplicationId() : "";
+                String deviceName = session != null && session.getCastDevice() != null ? session.getCastDevice().getFriendlyName() : "";
+                lastError = "Media load failed (unknown reason, appId=" + appId + ", device=" + deviceName + ")";
+            } catch (Exception e) {
+                lastError = "Media load failed (unknown reason)";
+            }
+            Logger.error(TAG, lastError, null);
+        }
+        return success.get();
     }
 }

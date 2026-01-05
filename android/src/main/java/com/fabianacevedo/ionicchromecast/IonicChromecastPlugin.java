@@ -14,24 +14,10 @@ import androidx.mediarouter.media.MediaRouteSelector;
 import androidx.mediarouter.media.MediaRouter;
 import android.content.DialogInterface;
 
-// New imports for Cast session/media events
-import com.google.android.gms.cast.framework.CastContext;
-import com.google.android.gms.cast.framework.CastSession;
-import com.google.android.gms.cast.framework.SessionManagerListener;
-import com.google.android.gms.cast.framework.media.RemoteMediaClient;
-
 @CapacitorPlugin(name = "IonicChromecast")
 public class IonicChromecastPlugin extends Plugin {
 
     private IonicChromecast implementation = new IonicChromecast();
-
-    // Session/media listeners
-    private SessionManagerListener<CastSession> sessionListener;
-    private RemoteMediaClient.Callback mediaCallback;
-
-    // MediaRouter for route selection observation
-    private MediaRouter mediaRouter;
-    private MediaRouter.Callback mediaRouterCallback;
 
     /**
      * Initialize the Google Cast SDK
@@ -50,279 +36,109 @@ public class IonicChromecastPlugin extends Plugin {
         
         JSObject ret = new JSObject();
         ret.put("success", success);
+        String initError = implementation.getLastError();
+        if (initError != null && !initError.isEmpty()) {
+            ret.put("error", initError);
+        }
         
         if (success) {
-            // Attach session listener to emit events
-            try {
-                CastContext cc = implementation.getCastContext();
-                if (cc != null) {
-                    // Remove previous listener if any
-                    if (sessionListener != null) {
-                        cc.getSessionManager().removeSessionManagerListener(sessionListener, CastSession.class);
-                    }
-                    sessionListener = new SessionManagerListener<CastSession>() {
-                        @Override
-                        public void onSessionStarted(CastSession session, String sessionId) {
-                            com.getcapacitor.Logger.info("IonicChromecast", "⭐ onSessionStarted called! sessionId=" + sessionId);
-                            JSObject data = new JSObject();
-                            data.put("sessionId", sessionId);
-                            notifyListeners("sessionStarted", data);
-
-                            attachRemoteMediaClient(session);
-                        }
-                        @Override
-                        public void onSessionResumed(CastSession session, boolean wasSuspended) {
-                            com.getcapacitor.Logger.info("IonicChromecast", "⭐ onSessionResumed called!");
-                            JSObject data = new JSObject();
-                            data.put("resumed", true);
-                            notifyListeners("sessionStarted", data);
-
-                            attachRemoteMediaClient(session);
-                        }
-                        @Override public void onSessionEnded(CastSession session, int error) {
-                            com.getcapacitor.Logger.info("IonicChromecast", "⭐ onSessionEnded called! error=" + error);
-                            JSObject data = new JSObject();
-                            data.put("errorCode", error);
-                            notifyListeners("sessionEnded", data);
-                            detachRemoteMediaClient(session);
-                        }
-                        @Override public void onSessionStarting(CastSession session) {
-                            com.getcapacitor.Logger.info("IonicChromecast", "⭐ onSessionStarting called!");
-                        }
-                        @Override public void onSessionEnding(CastSession session) {
-                            com.getcapacitor.Logger.info("IonicChromecast", "⭐ onSessionEnding called!");
-                        }
-                        @Override public void onSessionStartFailed(CastSession session, int error) {
-                            com.getcapacitor.Logger.error("IonicChromecast", "⭐ onSessionStartFailed! error=" + error, null);
-                        }
-                        @Override public void onSessionResumeFailed(CastSession session, int error) {
-                            com.getcapacitor.Logger.error("IonicChromecast", "⭐ onSessionResumeFailed! error=" + error, null);
-                        }
-                        @Override public void onSessionSuspended(CastSession session, int reason) {
-                            com.getcapacitor.Logger.info("IonicChromecast", "⭐ onSessionSuspended! reason=" + reason);
-                        }
-                        @Override public void onSessionResuming(CastSession session, String sessionId) {
-                            com.getcapacitor.Logger.info("IonicChromecast", "⭐ onSessionResuming! sessionId=" + sessionId);
-                        }
-                    };
-                    cc.getSessionManager().addSessionManagerListener(sessionListener, CastSession.class);
-                    com.getcapacitor.Logger.info("IonicChromecast", "✅ SessionManagerListener registered successfully");
-                }
-            } catch (Exception ignored) {}
-
             call.resolve(ret);
         } else {
             call.reject("Failed to initialize Cast SDK", ret);
         }
     }
 
-    private void attachRemoteMediaClient(CastSession session) {
-        try {
-            RemoteMediaClient rmc = session != null ? session.getRemoteMediaClient() : null;
-            if (rmc == null) return;
-            if (mediaCallback != null) {
-                rmc.unregisterCallback(mediaCallback);
-            }
-            mediaCallback = new RemoteMediaClient.Callback() {
-                @Override
-                public void onStatusUpdated() {
-                    JSObject data = new JSObject();
-                    data.put("status", "updated");
-                    notifyListeners("playbackStatusChanged", data);
-                }
-                @Override
-                public void onMetadataUpdated() {
-                    JSObject data = new JSObject();
-                    data.put("status", "metadataUpdated");
-                    notifyListeners("playbackStatusChanged", data);
-                }
-            };
-            rmc.registerCallback(mediaCallback);
-        } catch (Exception ignored) {}
-    }
-
-    private void detachRemoteMediaClient(CastSession session) {
-        try {
-            RemoteMediaClient rmc = session != null ? session.getRemoteMediaClient() : null;
-            if (rmc != null && mediaCallback != null) {
-                rmc.unregisterCallback(mediaCallback);
-            }
-        } catch (Exception ignored) {}
-    }
-
-    @PluginMethod
-    public void echo(PluginCall call) {
-        String value = call.getString("value");
-
-        JSObject ret = new JSObject();
-        ret.put("value", implementation.echo(value));
-        call.resolve(ret);
-    }
-
     /**
-     * Request a Cast session from JavaScript - Uses Cast SDK's built-in device picker
+     * Muestra el selector nativo de dispositivos Cast
      */
     @PluginMethod
     public void requestSession(PluginCall call) {
-        // Ensure Cast SDK initialized
-        if (!implementation.isInitialized()) {
+        if (!implementation.isInitialized() || implementation.getCastContext() == null) {
             JSObject err = new JSObject();
             err.put("success", false);
-            err.put("message", "Cast SDK not initialized. Call initialize() first.");
+            err.put("message", "Cast SDK not initialized");
             call.reject("Failed to request Cast session", err);
             return;
         }
 
         getActivity().runOnUiThread(() -> {
             try {
-                CastContext cc = implementation.getCastContext();
-                if (cc == null) {
-                    JSObject err = new JSObject();
-                    err.put("success", false);
-                    err.put("message", "CastContext is null");
-                    call.reject("Failed to request Cast session", err);
-                    return;
-                }
-
-                com.getcapacitor.Logger.info("IonicChromecast", "🚀 Showing Cast device selector via MediaRouteChooserDialog...");
-                
-                // Use MediaRouteChooserDialog - the proper way (as per caprockapps implementation)
                 AppCompatActivity activity = (AppCompatActivity) getActivity();
-                
                 String receiverId = CastOptionsProvider.sReceiverApplicationId;
-                if (TextUtils.isEmpty(receiverId)) {
-                    receiverId = "CC1AD845";
-                }
-                
+                if (TextUtils.isEmpty(receiverId)) receiverId = "CC1AD845";
+
                 MediaRouteSelector selector = new MediaRouteSelector.Builder()
                         .addControlCategory(CastMediaControlIntent.categoryForCast(receiverId))
                         .build();
-                
+
                 MediaRouteChooserDialog chooserDialog = new MediaRouteChooserDialog(activity, androidx.appcompat.R.style.Theme_AppCompat_NoActionBar);
                 chooserDialog.setRouteSelector(selector);
                 chooserDialog.setCanceledOnTouchOutside(true);
                 chooserDialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
-                    @Override
-                    public void onCancel(DialogInterface dialog) {
-                        com.getcapacitor.Logger.info("IonicChromecast", "User cancelled Cast device selection");
-                    }
+                    @Override public void onCancel(DialogInterface dialog) {}
                 });
-                
-                // Show the dialog
                 chooserDialog.show();
-                
-                com.getcapacitor.Logger.info("IonicChromecast", "✅ Cast device selector dialog displayed");
 
                 JSObject ret = new JSObject();
                 ret.put("success", true);
-                ret.put("message", "Cast chooser displayed.");
+                ret.put("message", "Cast chooser displayed");
                 call.resolve(ret);
             } catch (Exception e) {
-                com.getcapacitor.Logger.error("IonicChromecast", "❌ Error showing Cast chooser: " + e.getMessage(), e);
                 JSObject err = new JSObject();
                 err.put("success", false);
-                err.put("message", "Error showing Cast chooser: " + e.getMessage());
+                err.put("message", "Error showing chooser: " + e.getMessage());
                 call.reject("Failed to request Cast session", err);
             }
         });
     }
 
     /**
-     * Check if there is an active Cast session from JavaScript
+     * Estado de sesión activa
      */
     @PluginMethod
     public void isSessionActive(PluginCall call) {
         boolean active = implementation.isSessionActive();
         JSObject ret = new JSObject();
         ret.put("active", active);
-        if (active) {
-            ret.put("message", "There is an active Cast session.");
-        } else {
-            ret.put("message", "No active Cast session.");
-        }
         call.resolve(ret);
     }
 
     /**
-     * Check if there are available Cast devices from JavaScript
+     * Carga media en el dispositivo
+     */
+    @PluginMethod
+    public void loadMedia(PluginCall call) {
+        String url = call.getString("url");
+        JSObject metadataObj = call.getObject("metadata");
+
+        String title = metadataObj != null ? metadataObj.getString("title") : null;
+        String subtitle = metadataObj != null ? metadataObj.getString("subtitle") : null;
+        String contentType = metadataObj != null ? metadataObj.getString("contentType") : null;
+        String imageUrl = null;
+        if (metadataObj != null && metadataObj.has("images")) {
+            try { imageUrl = metadataObj.getJSONArray("images").optString(0, null); } catch (Exception ignore) {}
+        }
+
+        boolean ok = implementation.loadMedia(url, title, subtitle, imageUrl, contentType);
+        JSObject ret = new JSObject();
+        ret.put("success", ok);
+        String err = implementation.getLastError();
+        if (err != null && !err.isEmpty()) ret.put("error", err);
+        if (ok) {
+            call.resolve(ret);
+        } else {
+            call.reject("Failed to load media", ret);
+        }
+    }
+
+    /**
+     * Revisa si hay dispositivos disponibles
      */
     @PluginMethod
     public void areDevicesAvailable(PluginCall call) {
         boolean available = implementation.areDevicesAvailable();
         JSObject ret = new JSObject();
         ret.put("available", available);
-        if (available) {
-            ret.put("message", "There are Cast devices available.");
-        } else {
-            ret.put("message", "No Cast devices available.");
-        }
         call.resolve(ret);
-    }
-
-    /**
-     * Load media on the Cast device from JavaScript
-     */
-    @PluginMethod
-    public void loadMedia(PluginCall call) {
-        String url = call.getString("url");
-        JSObject metadataObj = call.getObject("metadata");
-        
-        com.getcapacitor.Logger.info("IonicChromecast", "📥 loadMedia called with URL: " + url);
-        com.getcapacitor.Logger.info("IonicChromecast", "📥 metadata object: " + (metadataObj != null ? metadataObj.toString() : "null"));
-        
-        // Extract metadata fields
-        String title = null;
-        String subtitle = null;
-        String imageUrl = null;
-        String contentType = null;
-        
-        if (metadataObj != null) {
-            title = metadataObj.getString("title");
-            subtitle = metadataObj.getString("subtitle");
-            contentType = metadataObj.getString("contentType");
-            
-            com.getcapacitor.Logger.info("IonicChromecast", "📥 Extracted - title: " + title + ", subtitle: " + subtitle + ", contentType: " + contentType);
-            
-            // Get the first image if available
-            if (metadataObj.has("images")) {
-                try {
-                    imageUrl = metadataObj.getJSONArray("images").optString(0, null);
-                    com.getcapacitor.Logger.info("IonicChromecast", "📥 Extracted imageUrl: " + imageUrl);
-                } catch (Exception e) {
-                    // Ignore if images array is malformed
-                    com.getcapacitor.Logger.error("IonicChromecast", "Error parsing images array", e);
-                }
-            }
-        }
-        
-        boolean success = implementation.loadMedia(url, title, subtitle, imageUrl, contentType);
-        
-        JSObject ret = new JSObject();
-        ret.put("success", success);
-        if (success) {
-            ret.put("message", "Media sent to Cast device.");
-            notifyListeners("mediaLoaded", ret);
-            call.resolve(ret);
-        } else {
-            ret.put("message", "Failed to send media. Check session and device.");
-            notifyListeners("mediaError", ret);
-            call.reject("Failed to send media", ret);
-        }
-    }
-
-    @Override
-    protected void handleOnDestroy() {
-        super.handleOnDestroy();
-        try {
-            CastContext cc = implementation.getCastContext();
-            if (cc != null && sessionListener != null) {
-                cc.getSessionManager().removeSessionManagerListener(sessionListener, CastSession.class);
-            }
-        } catch (Exception ignored) {}
-        try {
-            if (mediaRouter != null && mediaRouterCallback != null) {
-                mediaRouter.removeCallback(mediaRouterCallback);
-            }
-        } catch (Exception ignored) {}
     }
 }

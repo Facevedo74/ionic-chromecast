@@ -10,6 +10,13 @@ function appendLog(msg) {
   el.prepend(li);
 }
 
+// IDs disponibles para prueba
+const DEFAULT_MEDIA_RECEIVER_ID = 'CC1AD845';      // receiver por defecto, recomendado
+const CAST_VIDEOS_SAMPLE_ID = '4F8B3483';          // receiver demo CAF (por si el default falla)
+
+// Usa el receiver CAF de demo (CastVideos) para mayor compatibilidad
+const DEFAULT_RECEIVER_ID = DEFAULT_MEDIA_RECEIVER_ID;
+
 // Initialize Cast SDK when app loads
 window.addEventListener('DOMContentLoaded', async () => {
     console.log('Initializing Chromecast...');
@@ -18,10 +25,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     const statusEl = document.getElementById('castStatus');
     
     try {
-        // Using Google's Default Media Receiver (CC1AD845)
-        // This ONLY works with whitelisted Google sample videos
         const result = await IonicChromecast.initialize({
-            receiverApplicationId: 'CC1AD845' // Google Default Media Receiver
+            receiverApplicationId: DEFAULT_RECEIVER_ID
         });
         
         if (result.success) {
@@ -41,7 +46,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         appendLog('Initialize error: ' + (error?.message || error));
     }
 
-    // Hook button that had inline onclick without parentheses
+    // Hook button (redundante con onclick del HTML, pero mantiene compatibilidad)
     const btnCheck = document.getElementById('btnCheckDevices');
     if (btnCheck) btnCheck.onclick = () => window.checkDevices();
 
@@ -206,15 +211,14 @@ window.playVideo = async () => {
         playEl.textContent = '⏳ Loading media to TV...';
         appendLog('STEP 4: Sending loadMedia request...');
         
-        // Using HTTP instead of HTTPS - some receivers require this
         const result = await IonicChromecast.loadMedia({
-            url: 'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4', // Whitelisted Google sample video
+            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
             metadata: {
-                title: 'Sintel',
+                title: 'Big Buck Bunny',
                 subtitle: 'Blender Foundation',
-                images: ['http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/Sintel.jpg'],
+                images: ['https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg'],
                 contentType: 'video/mp4',
-                duration: 888
+                duration: 596
             }
         });
         
