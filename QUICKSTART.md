@@ -88,9 +88,26 @@ async initializeCast() {
 
 ## 🔧 Configuration
 
-### Android Manifest (Automatic)
+### Android Manifest (Required manual step)
 
-The plugin automatically adds these permissions:
+Add the following `meta-data` inside your app's `<application>` tag in `AndroidManifest.xml` (this plugin relies on an `OptionsProvider` to configure Cast options):
+
+```xml
+<meta-data
+  android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+  android:value="com.fabianacevedo.ionicchromecast.CastOptionsProvider"
+  tools:replace="android:value" />
+```
+
+Also ensure the `tools` namespace is declared on the root `<manifest>` element if not present:
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools"
+          package="your.app.package">
+```
+
+Permissions you should verify are present in your app manifest or added by your build configuration:
 - `INTERNET`
 - `ACCESS_NETWORK_STATE`
 - `ACCESS_WIFI_STATE`
