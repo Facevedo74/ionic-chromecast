@@ -67,8 +67,8 @@ import { IonicChromecast } from 'ionic-chromecast';
 // In your app.component.ts or main initialization
 async initializeCast() {
   const result = await IonicChromecast.initialize({
-    // Prefer CastVideos CAF receiver for reliable UI on TV. Use 'CC1AD845' if you need the default.
-    receiverApplicationId: '4F8B3483'
+    // Google Cast Default Media Receiver, used by the player integration below.
+    receiverApplicationId: 'CC1AD845'
   });
   
   if (result.success) {
@@ -131,6 +131,181 @@ async stopCasting() {
   }
 }
 ```
+
+## Ionic/Angular Player Integration
+
+The following integration mirrors the production player flow used with this plugin. It uses Google's Default Media Receiver application ID (`CC1AD845`) consistently, initializes the SDK only once, waits for the selected Cast session to become active, detects HLS or MP4 content, sends media metadata and retries the load once with a fresh session when necessary.
+
+### Chromecast service
+
+```typescript
+import { Injectable } from '@angular/core';
+import { IonicChromecast } from 'ionic-chromecast';
+
+interface CastMetadata {
+  title?: string;
+  subtitle?: string;
+  contentType?: string;
+  images?: string[];
+}
+
+interface CastResult {
+  success: boolean;
+  cancelled?: boolean;
+  message?: string;
+}
+
+@Injectable({ providedIn: 'root' })
+export class ChromecastService {
+  private readonly receiverApplicationId = 'CC1AD845';
+  private initialized = false;
+  private initializing?: Promise<void>;
+
+  async initialize(receiverApplicationId = this.receiverApplicationId) {
+    if (this.initialized) {
+      return { success: true };
+    }
+
+    if (!this.initializing) {
+      this.initializing = IonicChromecast.initialize({ receiverApplicationId })
+        .then(() => {
+          this.initialized = true;
+        })
+        .catch((error) => {
+          this.initializing = undefined;
+          throw error;
+        });
+    }
+
+    await this.initializing;
+    return { success: true };
+  }
+
+  async castMedia(url: string, metadata?: CastMetadata): Promise<CastResult> {
+    try {
+      await this.initialize();
+
+      const waitForActiveSession = async (attempts = 30, delayMs = 400) => {
+        for (let attempt = 0; attempt < attempts; attempt++) {
+          const { active } = await IonicChromecast.isSessionActive();
+          if (active) return true;
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+        return false;
+      };
+
+      const requestActiveSession = async (): Promise<CastResult> => {
+        const requested = await IonicChromecast.requestSession();
+        if (!requested.success) {
+          return {
+            success: false,
+            cancelled: true,
+            message: requested.message || 'Cast device selection was cancelled.'
+          };
+        }
+
+        if (!(await waitForActiveSession())) {
+          return {
+            success: false,
+            cancelled: true,
+            message: 'The Cast session did not become active.'
+          };
+        }
+
+        return { success: true };
+      };
+
+      const currentSession = await IonicChromecast.isSessionActive();
+      if (currentSession.active) {
+        await IonicChromecast.endSession();
+      }
+
+      const session = await requestActiveSession();
+      if (!session.success) return session;
+
+      const contentType = metadata?.contentType
+        || (url.includes('.m3u8') ? 'application/x-mpegurl' : 'video/mp4');
+
+      const loadMedia = () => IonicChromecast.loadMedia({
+        url,
+        metadata: {
+          title: metadata?.title,
+          subtitle: metadata?.subtitle,
+          contentType,
+          images: metadata?.images
+        }
+      });
+
+      try {
+        const result = await loadMedia();
+        if (result.success) {
+          return { cancelled: false, ...result };
+        }
+      } catch {
+        // Retry once with a fresh Cast session.
+      }
+
+      await IonicChromecast.endSession();
+      const retrySession = await requestActiveSession();
+      if (!retrySession.success) return retrySession;
+
+      const retry = await loadMedia();
+      return { cancelled: false, ...retry };
+    } catch (error) {
+      return {
+        success: false,
+        cancelled: false,
+        message: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+}
+```
+
+### Player component
+
+Initialize Cast when the player view is ready. Only show the Cast action when initialization succeeds:
+
+```typescript
+chromecastReady = false;
+
+ngAfterViewInit() {
+  this.chromecastService.initialize('CC1AD845')
+    .then(() => {
+      this.chromecastReady = true;
+    })
+    .catch(() => {
+      this.chromecastReady = false;
+    });
+}
+
+async castToChromecast() {
+  const result = await this.chromecastService.castMedia(this.videoUrl, {
+    title: this.videoTitle || 'Video',
+    subtitle: this.episode ? `Episode ${this.episode}` : '',
+    images: this.posterUrl ? [this.posterUrl] : undefined
+  });
+
+  if (result.success) {
+    this.videoElement.pause();
+    return;
+  }
+
+  if (!result.cancelled) {
+    console.error(result.message || 'The video could not be cast.');
+  }
+}
+```
+
+Example template:
+
+```html
+<button *ngIf="chromecastReady" type="button" (click)="castToChromecast()">
+  Cast to TV
+</button>
+```
+
+> `CC1AD845` is Google's Default Media Receiver. Use the same receiver application ID during initialization and session discovery. Replace it only if your application uses a receiver registered in the Google Cast SDK Developer Console.
 
 ## Complete Examples
 
@@ -593,6 +768,6 @@ Listen to Chromecast events (Android only)
 </docgen-api>
 
 ## Troubleshooting
-- No Cast UI on TV after connecting: use the CastVideos CAF receiver ID `4F8B3483` instead of the default `CC1AD845` when calling `initialize`.
+- No Cast UI on TV after connecting: confirm that `initialize` uses `CC1AD845`, wait until `isSessionActive()` returns `active: true`, and then call `loadMedia`.
 - Media returns success but nothing plays: confirm a session is active (`isSessionActive`), then retry `loadMedia` with a known-good HTTPS MP4 (e.g., BigBuckBunny).
 - Devices not found: ensure the phone and Chromecast are on the same WiFi and Google Play Services is up to date.
