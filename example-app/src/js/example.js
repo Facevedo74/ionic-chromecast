@@ -226,19 +226,22 @@ window.playVideo = async (format = 'mp4') => {
         appendLog('STEP 4: Sending loadMedia request...');
         
         const isHls = format === 'hls';
+        const isLongMp4 = format === 'long-mp4';
         const videoUrl = isHls
             ? 'https://r2.animeslime.online/N/Naruto/LAT/Naruto%20Latino%20-%20001/index.m3u8'
-            : 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+            : isLongMp4
+                ? 'https://archive.org/download/youtube-aqz-KE-bpKQ/aqz-KE-bpKQ.mp4'
+                : 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
         const contentType = isHls ? 'application/x-mpegurl' : 'video/mp4';
         appendLog(`STEP 4: loadMedia url=${videoUrl} ct=${contentType} receiver=${DEFAULT_RECEIVER_ID}`);
 
         const result = await IonicChromecast.loadMedia({
             url: videoUrl,
             metadata: {
-                title: isHls ? 'Naruto Latino - 001' : 'Flower',
-                subtitle: isHls ? 'HLS test' : 'MDN sample video',
+                title: isHls ? 'Naruto Latino - 001' : isLongMp4 ? 'W3C WAI-Tools Overview' : 'Flower',
+                subtitle: isHls ? 'HLS test' : isLongMp4 ? 'Long MP4 seek test' : 'MDN sample video',
                 contentType,
-                ...(isHls ? {} : { duration: 5 })
+                ...(isHls ? {} : { duration: isLongMp4 ? 581.248 : 5 })
             }
         });
         
