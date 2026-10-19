@@ -61,7 +61,10 @@ window.addEventListener('DOMContentLoaded', async () => {
       await IonicChromecast.addListener('sessionStarted', (e) => {
         appendLog('event: sessionStarted ' + JSON.stringify(e || {}));
         const sessionEl = document.getElementById('sessionStatus');
-        if (sessionEl) { sessionEl.textContent = '✅ Connected'; sessionEl.style.color = 'green'; }
+        if (sessionEl) {
+          sessionEl.textContent = `✅ Connected to ${e?.deviceName || (e?.transport === 'dlna' ? 'DLNA TV' : 'Chromecast')}`;
+          sessionEl.style.color = 'green';
+        }
       });
       await IonicChromecast.addListener('sessionEnded', (e) => {
         appendLog('event: sessionEnded ' + JSON.stringify(e || {}));
@@ -114,11 +117,11 @@ window.checkDevices = async () => {
             devicesStatusEl.textContent = '📡 Devices available';
             devicesStatusEl.style.color = 'green';
         } else {
-            devicesStatusEl.textContent = '❌ No devices available';
+            devicesStatusEl.textContent = '❌ No Cast/DLNA devices found' + (message ? ` — ${message}` : '');
             devicesStatusEl.style.color = 'red';
         }
         if (message) console.log(message);
-        appendLog('areDevicesAvailable => ' + available);
+        appendLog('areDevicesAvailable => ' + available + (message ? `; ${message}` : ''));
     } catch (e) {
         devicesStatusEl.textContent = '⚠️ Error checking devices';
         devicesStatusEl.style.color = 'orange';
@@ -135,8 +138,11 @@ window.startCasting = async () => {
     try {
         const result = await IonicChromecast.requestSession();
         appendLog('requestSession (test only) => ' + JSON.stringify(result || {}));
+        if (result?.dlnaDiscovery) appendLog('DLNA discovery => ' + result.dlnaDiscovery);
         if (result.success) {
-            sessionEl.textContent = '✅ Cast chooser displayed (you can close it)';
+            sessionEl.textContent = result.transport === 'dlna'
+                ? `✅ Connected to ${result.deviceName || 'DLNA TV'}`
+                : `✅ Cast chooser displayed${result.dlnaDiscovery ? `; ${result.dlnaDiscovery}` : ''}`;
             sessionEl.style.color = 'green';
         } else {
             sessionEl.textContent = '❌ Failed to show chooser';
@@ -151,7 +157,7 @@ window.startCasting = async () => {
 }
 
 // Play sample video - COMPLETE FLOW: check session, connect if needed, load media
-window.playVideo = async () => {
+window.playVideo = async (format = 'mp4') => {
     const playEl = document.getElementById('playStatus');
     const sessionEl = document.getElementById('sessionStatus');
     playEl.textContent = '⏳ Starting cast flow...';
@@ -159,7 +165,8 @@ window.playVideo = async () => {
 
     try {
         // STEP 1: Check if there's already an active session
-        let { active } = await IonicChromecast.isSessionActive();
+        const initialSession = await IonicChromecast.isSessionActive();
+        let { active } = initialSession;
         appendLog('STEP 1: isSessionActive => ' + active);
 
         if (!active) {
@@ -184,7 +191,7 @@ window.playVideo = async () => {
                 return;
             }
 
-            sessionEl.textContent = '📲 Select your Chromecast device...';
+            sessionEl.textContent = '📲 Select your TV...';
             sessionEl.style.color = '#333';
 
             // STEP 3: Wait for user to select device and session to become active
@@ -200,7 +207,8 @@ window.playVideo = async () => {
                 return;
             }
 
-            sessionEl.textContent = '✅ Connected to Chromecast';
+            const selectedSession = await IonicChromecast.isSessionActive();
+            sessionEl.textContent = `✅ Connected to ${selectedSession.deviceName || (selectedSession.transport === 'dlna' ? 'DLNA TV' : 'Chromecast')}`;
             sessionEl.style.color = 'green';
             appendLog('STEP 3: Session connected successfully');
             
@@ -209,7 +217,7 @@ window.playVideo = async () => {
             await new Promise(r => setTimeout(r, 2000));
         } else {
             appendLog('STEP 1: Session already active, skipping connection');
-            sessionEl.textContent = '✅ Already connected';
+            sessionEl.textContent = `✅ Connected to ${initialSession.deviceName || (initialSession.transport === 'dlna' ? 'DLNA TV' : 'Chromecast')}`;
             sessionEl.style.color = 'green';
         }
 
@@ -217,18 +225,20 @@ window.playVideo = async () => {
         playEl.textContent = '⏳ Loading media to TV...';
         appendLog('STEP 4: Sending loadMedia request...');
         
-        const videoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-        const contentType = 'video/mp4'; // Si usas HLS, cambia a 'application/x-mpegurl'
+        const isHls = format === 'hls';
+        const videoUrl = isHls
+            ? 'https://r2.animeslime.online/N/Naruto/LAT/Naruto%20Latino%20-%20001/index.m3u8'
+            : 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+        const contentType = isHls ? 'application/x-mpegurl' : 'video/mp4';
         appendLog(`STEP 4: loadMedia url=${videoUrl} ct=${contentType} receiver=${DEFAULT_RECEIVER_ID}`);
 
         const result = await IonicChromecast.loadMedia({
             url: videoUrl,
             metadata: {
-                title: 'Big Buck Bunny',
-                subtitle: 'Blender Foundation',
-                images: ['https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg'],
+                title: isHls ? 'Naruto Latino - 001' : 'Flower',
+                subtitle: isHls ? 'HLS test' : 'MDN sample video',
                 contentType,
-                duration: 596
+                ...(isHls ? {} : { duration: 5 })
             }
         });
         
@@ -237,7 +247,7 @@ window.playVideo = async () => {
         if (result.success) {
             playEl.textContent = '▶️ Playing on TV!';
             playEl.style.color = 'green';
-            appendLog('✅ SUCCESS: Video is now playing on Chromecast');
+            appendLog('✅ SUCCESS: Video was sent to the TV');
         } else {
             playEl.textContent = '❌ Failed to load media';
             playEl.style.color = 'red';

@@ -23,17 +23,22 @@ export class IonicChromecastWeb extends WebPlugin implements IonicChromecastPlug
 
   async requestSession(): Promise<{ success: boolean; message?: string }> {
     console.warn('requestSession() is not supported on web.');
-    return { success: false, message: 'Google Cast session is only available on Android.' };
+    return { success: false, message: 'Google Cast and DLNA sessions are only available on Android.' };
+  }
+
+  async requestCastSession(): Promise<{ success: boolean; message?: string }> {
+    console.warn('requestCastSession() is not supported on web.');
+    return { success: false, message: 'Google Cast sessions are only available on Android.' };
   }
 
   async isSessionActive(): Promise<{ active: boolean; message?: string }> {
     console.warn('isSessionActive() is not supported on web.');
-    return { active: false, message: 'Session detection only available on Android.' };
+    return { active: false, message: 'Playback session detection is only available on Android.' };
   }
 
   async areDevicesAvailable(): Promise<{ available: boolean; message?: string }> {
     console.warn('areDevicesAvailable() is not supported on web.');
-    return { available: false, message: 'Device detection only available on Android.' };
+    return { available: false, message: 'Google Cast and DLNA device detection is only available on Android.' };
   }
 
   async loadMedia(_: { url: string; metadata?: any }): Promise<{ success: boolean; message?: string }> {

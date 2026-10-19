@@ -12,6 +12,7 @@ import com.google.android.gms.common.GoogleApiAvailability;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.List;
 import androidx.mediarouter.media.MediaRouter;
 import androidx.mediarouter.media.MediaRouteSelector;
 import com.google.android.gms.cast.CastMediaControlIntent;
@@ -34,6 +35,7 @@ public class IonicChromecast {
     private String lastError = null;
     private MediaRouter mediaRouter;
     private MediaRouteSelector mediaRouteSelector;
+    private DlnaManager dlnaManager;
     private final Object discoveryLock = new Object();
     
     /**
@@ -45,6 +47,10 @@ public class IonicChromecast {
     public boolean initialize(Context context, String receiverApplicationId) {
         try {
             lastError = null;
+            appContext = context.getApplicationContext();
+            if (dlnaManager == null) {
+                dlnaManager = new DlnaManager(appContext);
+            }
             if (isInitialized) {
                 Logger.info(TAG, "Cast SDK already initialized");
                 return true;
@@ -72,7 +78,6 @@ public class IonicChromecast {
                 return false;
             }
             // Obtener CastContext y preparar MediaRouter siempre en el hilo principal
-            appContext = context.getApplicationContext();
             Runnable initRunnable = () -> {
                 try {
                     castContext = CastContext.getSharedInstance(appContext);
@@ -131,10 +136,51 @@ public class IonicChromecast {
         return castContext;
     }
 
+    public List<DlnaManager.Device> discoverDlnaDevices(int timeoutMs) {
+        if (dlnaManager == null && appContext != null) {
+            dlnaManager = new DlnaManager(appContext);
+        }
+        return dlnaManager != null ? dlnaManager.discover(timeoutMs) : java.util.Collections.emptyList();
+    }
+
+    public String getLastDiscoveryReport() {
+        return dlnaManager != null ? dlnaManager.getLastDiscoveryReport() : "DLNA discovery is not initialized";
+    }
+
+    public void selectDlnaDevice(DlnaManager.Device device) {
+        if (dlnaManager != null) {
+            dlnaManager.selectDevice(device);
+        }
+    }
+
+    public void clearDlnaSession() {
+        if (dlnaManager != null) {
+            dlnaManager.clearSelectedDevice();
+        }
+    }
+
+    public boolean isDlnaSessionActive() {
+        return dlnaManager != null && dlnaManager.hasSelectedDevice();
+    }
+
+    public String getActiveTransport() {
+        if (isDlnaSessionActive()) return "dlna";
+        return isCastSessionActive() ? "google-cast" : null;
+    }
+
+    public String getSelectedDeviceName() {
+        return dlnaManager != null ? dlnaManager.getSelectedDeviceName() : null;
+    }
+
     /**
      * Verifica si hay sesión activa
      */
     public boolean isSessionActive() {
+        if (isDlnaSessionActive()) return true;
+        return isCastSessionActive();
+    }
+
+    private boolean isCastSessionActive() {
         if (!isInitialized || castContext == null) return false;
 
         // Consultar SessionManager en el hilo principal para obtener el estado real
@@ -187,6 +233,13 @@ public class IonicChromecast {
      * Finaliza la sesión Cast actual, si existe
      */
     public boolean endSession() {
+        if (isDlnaSessionActive()) {
+            dlnaManager.stopAndClear();
+            lastError = null;
+            Logger.info(TAG, "DLNA session ended by request");
+            return true;
+        }
+
         if (!isInitialized || castContext == null) {
             lastError = "Cast SDK not initialized. Call initialize() first.";
             Logger.error(TAG, lastError, null);
@@ -245,27 +298,12 @@ public class IonicChromecast {
             return false;
         }
 
-        // MediaRouter debe consultarse en el hilo principal para obtener rutas válidas
-        final AtomicBoolean result = new AtomicBoolean(false);
-        Runnable scanRunnable = () -> result.set(runDeviceScan());
-
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            scanRunnable.run();
-            return result.get();
-        }
-
-        try {
-            CountDownLatch latch = new CountDownLatch(1);
-            new Handler(Looper.getMainLooper()).post(() -> {
-                scanRunnable.run();
-                latch.countDown();
-            });
-            latch.await(6, TimeUnit.SECONDS);
-        } catch (InterruptedException ie) {
-            Logger.error(TAG, "Interrupted while checking devices", ie);
-        }
-
-        return result.get();
+        boolean castAvailable = runDeviceScan();
+        List<DlnaManager.Device> dlnaDevices = discoverDlnaDevices(5000);
+        boolean dlnaAvailable = !dlnaDevices.isEmpty();
+        Logger.info(TAG, "areDevicesAvailable: googleCastFound=" + castAvailable
+            + ", dlnaFound=" + dlnaAvailable + "; " + getLastDiscoveryReport());
+        return castAvailable || dlnaAvailable;
     }
 
     /**
@@ -273,13 +311,15 @@ public class IonicChromecast {
      */
     private boolean runDeviceScan() {
         final AtomicBoolean found = new AtomicBoolean(false);
-        final CountDownLatch latch = new CountDownLatch(1);
+        final CountDownLatch routeFound = new CountDownLatch(1);
+        final CountDownLatch registrationComplete = new CountDownLatch(1);
+        final Handler mainHandler = new Handler(Looper.getMainLooper());
         MediaRouter.Callback discoveryCallback = new MediaRouter.Callback() {
             @Override
             public void onRouteAdded(MediaRouter router, MediaRouter.RouteInfo route) {
                 if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
                     found.set(true);
-                    latch.countDown();
+                    routeFound.countDown();
                 }
             }
 
@@ -287,56 +327,90 @@ public class IonicChromecast {
             public void onRouteChanged(MediaRouter router, MediaRouter.RouteInfo route) {
                 if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
                     found.set(true);
-                    latch.countDown();
+                    routeFound.countDown();
                 }
             }
         };
 
-        try {
-            synchronized (discoveryLock) {
-                mediaRouter.addCallback(
-                    mediaRouteSelector,
-                    discoveryCallback,
-                    MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY | MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN
-                );
-
-                // Revisar rutas conocidas inmediatamente
-                for (MediaRouter.RouteInfo route : mediaRouter.getRoutes()) {
-                    if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
-                        found.set(true);
-                        break;
-                    }
+        Runnable register = () -> {
+            try {
+                synchronized (discoveryLock) {
+                    mediaRouter.addCallback(
+                        mediaRouteSelector,
+                        discoveryCallback,
+                        MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY | MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN
+                    );
                 }
-
-                // Esperar algo de tiempo para descubrimiento activo
-                if (!found.get()) {
-                    latch.await(4000, TimeUnit.MILLISECONDS);
-                }
-
-                // Revisión final de rutas conocidas antes de salir
-                if (!found.get()) {
-                    for (MediaRouter.RouteInfo route : mediaRouter.getRoutes()) {
-                        if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) {
-                            found.set(true);
-                            break;
-                        }
-                    }
-                }
-
-                mediaRouter.removeCallback(discoveryCallback);
+                found.set(hasMatchingCastRoute());
+                if (found.get()) routeFound.countDown();
+            } catch (Exception e) {
+                Logger.error(TAG, "Could not start Cast route discovery: " + e.getMessage(), e);
+            } finally {
+                registrationComplete.countDown();
             }
-            Logger.info(TAG, "areDevicesAvailable: found=" + found.get());
+        };
+
+        boolean calledFromMain = Looper.myLooper() == Looper.getMainLooper();
+        try {
+            if (calledFromMain) register.run();
+            else {
+                mainHandler.post(register);
+                registrationComplete.await(2, TimeUnit.SECONDS);
+            }
+
+            // Keep the UI thread free so MediaRouter can deliver route callbacks.
+            if (!calledFromMain && !found.get()) routeFound.await(4500, TimeUnit.MILLISECONDS);
+
+            if (!calledFromMain) {
+                CountDownLatch finalCheck = new CountDownLatch(1);
+                mainHandler.post(() -> {
+                    try {
+                        found.set(found.get() || hasMatchingCastRoute());
+                        synchronized (discoveryLock) {
+                            mediaRouter.removeCallback(discoveryCallback);
+                        }
+                    } catch (Exception e) {
+                        Logger.warn(TAG, "Could not finish Cast route discovery: " + e.getMessage());
+                    } finally {
+                        finalCheck.countDown();
+                    }
+                });
+                finalCheck.await(2, TimeUnit.SECONDS);
+            } else {
+                synchronized (discoveryLock) {
+                    mediaRouter.removeCallback(discoveryCallback);
+                }
+            }
+            Logger.info(TAG, "areDevicesAvailable: googleCastFound=" + found.get());
             return found.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            Logger.error(TAG, "Interrupted while checking Cast routes", e);
+            return false;
         } catch (Exception e) {
             Logger.error(TAG, "Error checking available devices: " + e.getMessage(), e);
             return false;
         }
     }
 
+    private boolean hasMatchingCastRoute() {
+        if (mediaRouter == null || mediaRouteSelector == null) return false;
+        for (MediaRouter.RouteInfo route : mediaRouter.getRoutes()) {
+            if (route != null && route.matchesSelector(mediaRouteSelector) && !route.isDefault()) return true;
+        }
+        return false;
+    }
+
     /**
      * Envía media al dispositivo Cast (flujo básico)
      */
     public boolean loadMedia(String url, String title, String subtitle, String imageUrl, String contentType) {
+        if (isDlnaSessionActive()) {
+            boolean success = dlnaManager.loadMedia(url, title, subtitle, imageUrl, contentType);
+            lastError = success ? null : dlnaManager.getLastError();
+            return success;
+        }
+
         if (!isInitialized || castContext == null) {
             lastError = "Cast SDK not initialized. Call initialize() first.";
             Logger.error(TAG, lastError, null);

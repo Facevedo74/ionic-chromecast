@@ -9,6 +9,8 @@ A Capacitor plugin for integrating Google Cast SDK (Chromecast) with Ionic/Capac
 - ✅ Device discovery
 - ✅ Media playback with rich metadata
 - ✅ End active Cast session from app
+- ✅ DLNA/UPnP MediaRenderer discovery on the local network
+- ✅ Public MP4 and HLS playback through UPnP AVTransport
 - ✅ Android support
 - ✅ Event listeners
 - 🚧 iOS support (coming soon)
@@ -26,6 +28,7 @@ The plugin automatically configures the necessary permissions:
 - `INTERNET`
 - `ACCESS_NETWORK_STATE`
 - `ACCESS_WIFI_STATE`
+- `CHANGE_WIFI_MULTICAST_STATE`
 
 ### Required Cast Options Provider
 
@@ -56,6 +59,49 @@ npx cap sync android
 - Android API 23+
 - Google Play Services
 - Chromecast device on the same WiFi network
+- DLNA/UPnP televisions must expose a `MediaRenderer` with the `AVTransport` service
+- DLNA media URLs must be public HTTP/HTTPS URLs; authentication headers and DRM are not supported
+
+## Google Cast and DLNA/UPnP
+
+`requestSession()` preserves Google Cast support and also discovers DLNA/UPnP televisions:
+
+- If no DLNA television is found, the native Google Cast chooser opens directly as before.
+- If DLNA televisions are found, the plugin displays a device-type chooser containing **Chromecast / Android TV (Google Cast)** and every discovered **DLNA / UPnP** television.
+- Selecting a DLNA television marks the playback session as active. The existing `loadMedia()` call then sends `SetAVTransportURI` followed by `Play` through UPnP AVTransport.
+- `requestCastSession()` is available when the application needs to bypass DLNA discovery and open the original Google Cast chooser immediately.
+
+The same application flow works for both transports:
+
+```typescript
+const session = await IonicChromecast.requestSession();
+if (!session.success) return;
+
+const active = await IonicChromecast.isSessionActive();
+if (!active.active) return;
+
+await IonicChromecast.loadMedia({
+  url: 'https://example.com/public-video.mp4',
+  metadata: {
+    title: 'Public video',
+    contentType: 'video/mp4'
+  }
+});
+```
+
+HLS example:
+
+```typescript
+await IonicChromecast.loadMedia({
+  url: 'https://example.com/public-playlist.m3u8',
+  metadata: {
+    title: 'Public HLS stream',
+    contentType: 'application/vnd.apple.mpegurl'
+  }
+});
+```
+
+> DLNA sends the public URL to the television; the phone does not proxy the video. Actual MP4/HLS codec, container and HTTPS support depend on the television's native media renderer.
 
 ## Quick Start
 
@@ -556,6 +602,7 @@ export class CastButtonComponent implements OnInit {
 * [`initialize(...)`](#initialize)
 * [`echo(...)`](#echo)
 * [`requestSession()`](#requestsession)
+* [`requestCastSession()`](#requestcastsession)
 * [`isSessionActive()`](#issessionactive)
 * [`areDevicesAvailable()`](#aredevicesavailable)
 * [`loadMedia(...)`](#loadmedia)
@@ -608,7 +655,21 @@ echo(options: { value: string; }) => Promise<{ value: string; }>
 requestSession() => Promise<RequestSessionResult>
 ```
 
-Request a Cast session (Android only)
+Discover and select a Google Cast or DLNA/UPnP playback device (Android only).
+Falls back directly to the native Google Cast chooser when no DLNA renderer is found.
+
+**Returns:** <code>Promise&lt;<a href="#requestsessionresult">RequestSessionResult</a>&gt;</code>
+
+--------------------
+
+
+### requestCastSession()
+
+```typescript
+requestCastSession() => Promise<RequestSessionResult>
+```
+
+Open the native Google Cast chooser without scanning for DLNA devices (Android only).
 
 **Returns:** <code>Promise&lt;<a href="#requestsessionresult">RequestSessionResult</a>&gt;</code>
 
@@ -621,7 +682,7 @@ Request a Cast session (Android only)
 isSessionActive() => Promise<SessionStatusResult>
 ```
 
-Check if there is an active Cast session (Android only)
+Check if there is an active Google Cast or selected DLNA session (Android only)
 
 **Returns:** <code>Promise&lt;<a href="#sessionstatusresult">SessionStatusResult</a>&gt;</code>
 
@@ -634,7 +695,7 @@ Check if there is an active Cast session (Android only)
 areDevicesAvailable() => Promise<DevicesAvailableResult>
 ```
 
-Check if there are available Cast devices (Android only)
+Check if there are available Google Cast or DLNA/UPnP devices (Android only)
 
 **Returns:** <code>Promise&lt;<a href="#devicesavailableresult">DevicesAvailableResult</a>&gt;</code>
 
@@ -644,16 +705,16 @@ Check if there are available Cast devices (Android only)
 ### loadMedia(...)
 
 ```typescript
-loadMedia(options: LoadMediaOptions) => Promise<{ success: boolean; message?: string; }>
+loadMedia(options: LoadMediaOptions) => Promise<LoadMediaResult>
 ```
 
-Load media on the Cast device (Android only)
+Load public HTTP/HTTPS media on the selected Google Cast or DLNA device (Android only)
 
 | Param         | Type                                                          |
 | ------------- | ------------------------------------------------------------- |
 | **`options`** | <code><a href="#loadmediaoptions">LoadMediaOptions</a></code> |
 
-**Returns:** <code>Promise&lt;{ success: boolean; message?: string; }&gt;</code>
+**Returns:** <code>Promise&lt;<a href="#loadmediaresult">LoadMediaResult</a>&gt;</code>
 
 --------------------
 
@@ -664,7 +725,7 @@ Load media on the Cast device (Android only)
 endSession() => Promise<{ success: boolean; message?: string; }>
 ```
 
-End the current Cast session (Android only)
+End the current Google Cast or DLNA session (Android only)
 
 **Returns:** <code>Promise&lt;{ success: boolean; message?: string; }&gt;</code>
 
@@ -701,18 +762,23 @@ Listen to Chromecast events (Android only)
 
 #### RequestSessionResult
 
-| Prop          | Type                 |
-| ------------- | -------------------- |
-| **`success`** | <code>boolean</code> |
-| **`message`** | <code>string</code>  |
+| Prop             | Type                                                            |
+| ---------------- | --------------------------------------------------------------- |
+| **`success`**    | <code>boolean</code>                                            |
+| **`cancelled`**  | <code>boolean</code>                                            |
+| **`message`**    | <code>string</code>                                             |
+| **`transport`**  | <code><a href="#playbacktransport">PlaybackTransport</a></code> |
+| **`deviceName`** | <code>string</code>                                             |
 
 
 #### SessionStatusResult
 
-| Prop          | Type                 |
-| ------------- | -------------------- |
-| **`active`**  | <code>boolean</code> |
-| **`message`** | <code>string</code>  |
+| Prop             | Type                                                            |
+| ---------------- | --------------------------------------------------------------- |
+| **`active`**     | <code>boolean</code>                                            |
+| **`message`**    | <code>string</code>                                             |
+| **`transport`**  | <code><a href="#playbacktransport">PlaybackTransport</a></code> |
+| **`deviceName`** | <code>string</code>                                             |
 
 
 #### DevicesAvailableResult
@@ -721,6 +787,15 @@ Listen to Chromecast events (Android only)
 | --------------- | -------------------- |
 | **`available`** | <code>boolean</code> |
 | **`message`**   | <code>string</code>  |
+
+
+#### LoadMediaResult
+
+| Prop            | Type                                                            |
+| --------------- | --------------------------------------------------------------- |
+| **`success`**   | <code>boolean</code>                                            |
+| **`message`**   | <code>string</code>                                             |
+| **`transport`** | <code><a href="#playbacktransport">PlaybackTransport</a></code> |
 
 
 #### LoadMediaOptions
@@ -759,6 +834,11 @@ Listen to Chromecast events (Android only)
 
 
 ### Type Aliases
+
+
+#### PlaybackTransport
+
+<code>'google-cast' | 'dlna'</code>
 
 
 #### ChromecastEventType

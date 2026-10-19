@@ -8,13 +8,20 @@ export interface InitializeOptions {
 
 export interface RequestSessionResult {
   success: boolean;
+  cancelled?: boolean;
   message?: string;
+  transport?: PlaybackTransport;
+  deviceName?: string;
 }
 
 export interface SessionStatusResult {
   active: boolean;
   message?: string;
+  transport?: PlaybackTransport;
+  deviceName?: string;
 }
+
+export type PlaybackTransport = 'google-cast' | 'dlna';
 
 export interface DevicesAvailableResult {
   available: boolean;
@@ -34,6 +41,12 @@ export interface MediaMetadata {
 export interface LoadMediaOptions {
   url: string;
   metadata?: MediaMetadata;
+}
+
+export interface LoadMediaResult {
+  success: boolean;
+  message?: string;
+  transport?: PlaybackTransport;
 }
 
 export interface PluginListenerHandle {
@@ -65,27 +78,33 @@ export interface IonicChromecastPlugin {
   echo(options: { value: string }): Promise<{ value: string }>;
 
   /**
-   * Request a Cast session (Android only)
+   * Discover and select a Google Cast or DLNA/UPnP playback device (Android only).
+   * Falls back directly to the native Google Cast chooser when no DLNA renderer is found.
    */
   requestSession(): Promise<RequestSessionResult>;
 
   /**
-   * Check if there is an active Cast session (Android only)
+   * Open the native Google Cast chooser without scanning for DLNA devices (Android only).
+   */
+  requestCastSession(): Promise<RequestSessionResult>;
+
+  /**
+   * Check if there is an active Google Cast or selected DLNA session (Android only)
    */
   isSessionActive(): Promise<SessionStatusResult>;
 
   /**
-   * Check if there are available Cast devices (Android only)
+   * Check if there are available Google Cast or DLNA/UPnP devices (Android only)
    */
   areDevicesAvailable(): Promise<DevicesAvailableResult>;
 
   /**
-   * Load media on the Cast device (Android only)
+   * Load public HTTP/HTTPS media on the selected Google Cast or DLNA device (Android only)
    */
-  loadMedia(options: LoadMediaOptions): Promise<{ success: boolean; message?: string }>;
+  loadMedia(options: LoadMediaOptions): Promise<LoadMediaResult>;
 
   /**
-   * End the current Cast session (Android only)
+   * End the current Google Cast or DLNA session (Android only)
    */
   endSession(): Promise<{ success: boolean; message?: string }>;
 

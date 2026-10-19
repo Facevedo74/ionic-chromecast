@@ -13,10 +13,12 @@ import com.google.android.gms.cast.framework.Session;
 import com.google.android.gms.cast.framework.SessionManager;
 import com.google.android.gms.cast.framework.SessionManagerListener;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AlertDialog;
 import androidx.mediarouter.app.MediaRouteChooserDialog;
 import androidx.mediarouter.media.MediaRouteSelector;
 import androidx.mediarouter.media.MediaRouter;
 import android.content.DialogInterface;
+import java.util.List;
 
 @CapacitorPlugin(name = "IonicChromecast")
 public class IonicChromecastPlugin extends Plugin {
@@ -68,9 +70,11 @@ public class IonicChromecastPlugin extends Plugin {
                     }
 
                     @Override public void onSessionStarted(CastSession session, String sessionId) {
+                        implementation.clearDlnaSession();
                         JSObject data = new JSObject();
                         data.put("state", "started");
                         data.put("sessionId", sessionId);
+                        data.put("transport", "google-cast");
                         notifyListeners("sessionStarted", data);
                     }
 
@@ -118,58 +122,161 @@ public class IonicChromecastPlugin extends Plugin {
     }
 
     /**
-     * Muestra el selector nativo de dispositivos Cast
+     * Discovers DLNA/UPnP renderers while preserving the original Google Cast chooser.
+     * When no DLNA renderer is found, Google Cast opens directly as before.
      */
     @PluginMethod
     public void requestSession(PluginCall call) {
+        if (!isReady(call)) return;
+
+        new Thread(() -> {
+            List<DlnaManager.Device> dlnaDevices = implementation.discoverDlnaDevices(5000);
+            if (getActivity() == null || getActivity().isFinishing()) {
+                JSObject err = new JSObject();
+                err.put("success", false);
+                err.put("message", "Activity is not available");
+                call.reject("Failed to request playback session", err);
+                return;
+            }
+
+            String discoveryReport = implementation.getLastDiscoveryReport();
+            getActivity().runOnUiThread(() -> showPlaybackChooser(call, dlnaDevices, discoveryReport));
+        }, "IonicChromecast-DLNA-Discovery").start();
+    }
+
+    /**
+     * Opens Google Cast directly, without scanning for DLNA devices.
+     */
+    @PluginMethod
+    public void requestCastSession(PluginCall call) {
+        if (!isReady(call)) return;
+        getActivity().runOnUiThread(() -> showGoogleCastChooser(call));
+    }
+
+    private boolean isReady(PluginCall call) {
         if (!implementation.isInitialized() || implementation.getCastContext() == null) {
             JSObject err = new JSObject();
             err.put("success", false);
             err.put("message", "Cast SDK not initialized");
-            call.reject("Failed to request Cast session", err);
+            call.reject("Failed to request playback session", err);
+            return false;
+        }
+        if (getActivity() == null || getActivity().isFinishing()) {
+            JSObject err = new JSObject();
+            err.put("success", false);
+            err.put("message", "Activity is not available");
+            call.reject("Failed to request playback session", err);
+            return false;
+        }
+        return true;
+    }
+
+    private void showPlaybackChooser(PluginCall call, List<DlnaManager.Device> dlnaDevices, String discoveryReport) {
+        if (dlnaDevices.isEmpty()) {
+            showGoogleCastChooser(call, discoveryReport);
             return;
         }
 
-        getActivity().runOnUiThread(() -> {
-            try {
-                // Si hay una sesión con otro appId, termínala para forzar el receiver actual
-                try {
-                    SessionManager sm = implementation.getCastContext().getSessionManager();
-                    CastSession current = sm != null ? sm.getCurrentCastSession() : null;
-                    String wantedApp = CastOptionsProvider.sReceiverApplicationId;
-                    String currentApp = (current != null && current.getApplicationMetadata() != null) ? current.getApplicationMetadata().getApplicationId() : "";
-                    if (current != null && current.isConnected() && wantedApp != null && !wantedApp.isEmpty() && !wantedApp.equals(currentApp)) {
-                        sm.endCurrentSession(true);
-                    }
-                } catch (Exception ignored) {}
-
-                AppCompatActivity activity = (AppCompatActivity) getActivity();
-                String receiverId = CastOptionsProvider.sReceiverApplicationId;
-                if (TextUtils.isEmpty(receiverId)) receiverId = "CC1AD845";
-
-                MediaRouteSelector selector = new MediaRouteSelector.Builder()
-                        .addControlCategory(CastMediaControlIntent.categoryForCast(receiverId))
-                        .build();
-
-                MediaRouteChooserDialog chooserDialog = new MediaRouteChooserDialog(activity, androidx.appcompat.R.style.Theme_AppCompat_NoActionBar);
-                chooserDialog.setRouteSelector(selector);
-                chooserDialog.setCanceledOnTouchOutside(true);
-                chooserDialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
-                    @Override public void onCancel(DialogInterface dialog) {}
-                });
-                chooserDialog.show();
-
-                JSObject ret = new JSObject();
-                ret.put("success", true);
-                ret.put("message", "Cast chooser displayed");
-                call.resolve(ret);
-            } catch (Exception e) {
-                JSObject err = new JSObject();
-                err.put("success", false);
-                err.put("message", "Error showing chooser: " + e.getMessage());
-                call.reject("Failed to request Cast session", err);
+        try {
+            String[] choices = new String[dlnaDevices.size() + 1];
+            choices[0] = "Chromecast / Android TV (Google Cast)";
+            for (int i = 0; i < dlnaDevices.size(); i++) {
+                choices[i + 1] = dlnaDevices.get(i).getName() + " (DLNA / UPnP)";
             }
-        });
+
+            AlertDialog dialog = new AlertDialog.Builder((AppCompatActivity) getActivity())
+                .setTitle("Seleccionar TV")
+                .setItems(choices, (selectedDialog, which) -> {
+                    if (which == 0) {
+                        showGoogleCastChooser(call);
+                        return;
+                    }
+
+                    DlnaManager.Device selected = dlnaDevices.get(which - 1);
+                    implementation.selectDlnaDevice(selected);
+
+                    JSObject event = new JSObject();
+                    event.put("state", "started");
+                    event.put("transport", "dlna");
+                    event.put("deviceName", selected.getName());
+                    notifyListeners("sessionStarted", event);
+
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("message", "DLNA renderer selected");
+                    ret.put("transport", "dlna");
+                    ret.put("deviceName", selected.getName());
+                    call.resolve(ret);
+                })
+                .setOnCancelListener(cancelledDialog -> {
+                    JSObject ret = new JSObject();
+                    ret.put("success", false);
+                    ret.put("cancelled", true);
+                    ret.put("message", "Device selection was cancelled");
+                    call.resolve(ret);
+                })
+                .create();
+            dialog.setCanceledOnTouchOutside(true);
+            dialog.show();
+        } catch (Exception e) {
+            JSObject err = new JSObject();
+            err.put("success", false);
+            err.put("message", "Error showing device chooser: " + e.getMessage());
+            call.reject("Failed to request playback session", err);
+        }
+    }
+
+    private void showGoogleCastChooser(PluginCall call) {
+        showGoogleCastChooser(call, null);
+    }
+
+    private void showGoogleCastChooser(PluginCall call, String discoveryReport) {
+        try {
+            implementation.clearDlnaSession();
+
+            try {
+                SessionManager sm = implementation.getCastContext().getSessionManager();
+                CastSession current = sm != null ? sm.getCurrentCastSession() : null;
+                String wantedApp = CastOptionsProvider.sReceiverApplicationId;
+                String currentApp = (current != null && current.getApplicationMetadata() != null)
+                    ? current.getApplicationMetadata().getApplicationId()
+                    : "";
+                if (current != null && current.isConnected() && wantedApp != null && !wantedApp.isEmpty() && !wantedApp.equals(currentApp)) {
+                    sm.endCurrentSession(true);
+                }
+            } catch (Exception ignored) {}
+
+            AppCompatActivity activity = (AppCompatActivity) getActivity();
+            String receiverId = CastOptionsProvider.sReceiverApplicationId;
+            if (TextUtils.isEmpty(receiverId)) receiverId = "CC1AD845";
+
+            MediaRouteSelector selector = new MediaRouteSelector.Builder()
+                .addControlCategory(CastMediaControlIntent.categoryForCast(receiverId))
+                .build();
+
+            MediaRouteChooserDialog chooserDialog = new MediaRouteChooserDialog(
+                activity,
+                androidx.appcompat.R.style.Theme_AppCompat_NoActionBar
+            );
+            chooserDialog.setRouteSelector(selector);
+            chooserDialog.setCanceledOnTouchOutside(true);
+            chooserDialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
+                @Override public void onCancel(DialogInterface dialog) {}
+            });
+            chooserDialog.show();
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("message", "Cast chooser displayed");
+            ret.put("transport", "google-cast");
+            if (discoveryReport != null) ret.put("dlnaDiscovery", discoveryReport);
+            call.resolve(ret);
+        } catch (Exception e) {
+            JSObject err = new JSObject();
+            err.put("success", false);
+            err.put("message", "Error showing chooser: " + e.getMessage());
+            call.reject("Failed to request Cast session", err);
+        }
     }
 
     /**
@@ -180,6 +287,10 @@ public class IonicChromecastPlugin extends Plugin {
         boolean active = implementation.isSessionActive();
         JSObject ret = new JSObject();
         ret.put("active", active);
+        String transport = implementation.getActiveTransport();
+        if (transport != null) ret.put("transport", transport);
+        String deviceName = implementation.getSelectedDeviceName();
+        if (deviceName != null) ret.put("deviceName", deviceName);
         call.resolve(ret);
     }
 
@@ -199,15 +310,40 @@ public class IonicChromecastPlugin extends Plugin {
             try { imageUrl = metadataObj.getJSONArray("images").optString(0, null); } catch (Exception ignore) {}
         }
 
+        final String finalImageUrl = imageUrl;
+        if (implementation.isDlnaSessionActive()) {
+            new Thread(
+                () -> resolveLoadMedia(call, url, title, subtitle, finalImageUrl, contentType),
+                "IonicChromecast-DLNA-Load"
+            ).start();
+            return;
+        }
+
+        resolveLoadMedia(call, url, title, subtitle, imageUrl, contentType);
+    }
+
+    private void resolveLoadMedia(
+        PluginCall call,
+        String url,
+        String title,
+        String subtitle,
+        String imageUrl,
+        String contentType
+    ) {
         boolean ok = implementation.loadMedia(url, title, subtitle, imageUrl, contentType);
         JSObject ret = new JSObject();
         ret.put("success", ok);
+        String transport = implementation.getActiveTransport();
+        if (transport != null) ret.put("transport", transport);
         String err = implementation.getLastError();
         if (err != null && !err.isEmpty()) ret.put("error", err);
         if (ok) {
             call.resolve(ret);
         } else {
-            call.reject("Failed to load media", ret);
+            String message = "dlna".equals(transport) && err != null && !err.isEmpty()
+                ? "Failed to load media: " + err
+                : "Failed to load media";
+            call.reject(message, ret);
         }
     }
 
@@ -216,6 +352,14 @@ public class IonicChromecastPlugin extends Plugin {
      */
     @PluginMethod
     public void endSession(PluginCall call) {
+        if (implementation.isDlnaSessionActive()) {
+            new Thread(() -> resolveEndSession(call), "IonicChromecast-DLNA-End").start();
+            return;
+        }
+        resolveEndSession(call);
+    }
+
+    private void resolveEndSession(PluginCall call) {
         boolean ended = implementation.endSession();
         JSObject ret = new JSObject();
         ret.put("success", ended);
@@ -234,9 +378,12 @@ public class IonicChromecastPlugin extends Plugin {
      */
     @PluginMethod
     public void areDevicesAvailable(PluginCall call) {
-        boolean available = implementation.areDevicesAvailable();
-        JSObject ret = new JSObject();
-        ret.put("available", available);
-        call.resolve(ret);
+        new Thread(() -> {
+            boolean available = implementation.areDevicesAvailable();
+            JSObject ret = new JSObject();
+            ret.put("available", available);
+            ret.put("message", implementation.getLastDiscoveryReport());
+            call.resolve(ret);
+        }, "IonicChromecast-Device-Discovery").start();
     }
 }
