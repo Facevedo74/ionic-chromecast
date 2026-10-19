@@ -357,12 +357,7 @@ public class IonicChromecast {
                     return;
                 }
 
-                // Cache buster para evitar que el receiver siga mostrando el media anterior
                 String effectiveUrl = url;
-                try {
-                    String suffix = (url != null && url.contains("?")) ? "&" : "?";
-                    effectiveUrl = url + suffix + "_cb=" + System.currentTimeMillis();
-                } catch (Exception ignored) {}
 
                 Logger.info(TAG, "loadMedia: url=" + effectiveUrl + ", contentType=" + contentType);
 

@@ -2,23 +2,6 @@
 
 A Capacitor plugin for integrating Google Cast SDK (Chromecast) with Ionic/Capacitor applications.
 
-IMPORTANT: Add this to your Android app's `AndroidManifest.xml` inside the `<application>` tag before using the plugin:
-
-```xml
-<meta-data
-  android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
-  android:value="com.fabianacevedo.ionicchromecast.CastOptionsProvider"
-  tools:replace="android:value" />
-```
-
-Also ensure the `tools` namespace is declared on the root `<manifest>` element if not present:
-
-```xml
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-          xmlns:tools="http://schemas.android.com/tools"
-          package="your.app.package">
-```
-
 ## Features
 
 - ✅ Initialize Google Cast SDK
@@ -39,10 +22,35 @@ npx cap sync
 
 ## Android Configuration
 
-Ensure you have added the `meta-data` snippet shown above to your `AndroidManifest.xml` and that the following permissions are present in your app manifest or build configuration:
+The plugin automatically configures the necessary permissions:
 - `INTERNET`
 - `ACCESS_NETWORK_STATE`
 - `ACCESS_WIFI_STATE`
+
+### Required Cast Options Provider
+
+Before using the plugin on Android, add the Cast options provider to your app's `AndroidManifest.xml` inside the `<application>` tag:
+
+```xml
+<meta-data
+  android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+  android:value="com.fabianacevedo.ionicchromecast.CastOptionsProvider"
+  tools:replace="android:value" />
+```
+
+If your manifest does not already declare the `tools` namespace, add it to the root `<manifest>` element:
+
+```xml
+<manifest
+  xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
+```
+
+Then sync Android:
+
+```bash
+npx cap sync android
+```
 
 ### Requirements
 - Android API 23+
