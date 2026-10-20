@@ -1,6 +1,6 @@
 {
   "name": "ionic-chromecast",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "Capacitor plugin for Google Cast SDK (Chromecast) integration with Android support",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
@@ -51,6 +51,7 @@
     "clean": "rimraf ./dist",
     "watch": "tsc --watch",
     "prepublishOnly": "npm run build",
+    "publish": "npm publish --access public",
     "android:run": "cd example-app && npm install && npm run build && npx cap sync android && npx cap run android",
     "android:serve": "cd example-app && npm install && npm run dev -- --host --port 5173",
     "android:run:live": "cd example-app && npm install && npx cap sync android && npx cap run android --livereload --external --livereload-url=http://localhost:5173"

@@ -103,6 +103,16 @@ await IonicChromecast.loadMedia({
 
 > DLNA sends the public URL to the television; the phone does not proxy the video. Actual MP4/HLS codec, container and HTTPS support depend on the television's native media renderer.
 
+### Test the example app
+
+From the repository root, run `npm run android:run` to build, sync, and launch the Android example app. **Play Long MP4 Test** loads the public MP4 below, which is also useful for testing seeking:
+
+```text
+https://dn721902.ca.archive.org/0/items/youtube-aqz-KE-bpKQ/aqz-KE-bpKQ.mp4
+```
+
+The example app is maintained in `example-app/` and is not included in the published npm package.
+
 ## Quick Start
 
 ### 1. Initialize the Cast SDK
@@ -851,3 +861,4 @@ Listen to Chromecast events (Android only)
 - No Cast UI on TV after connecting: confirm that `initialize` uses `CC1AD845`, wait until `isSessionActive()` returns `active: true`, and then call `loadMedia`.
 - Media returns success but nothing plays: confirm a session is active (`isSessionActive`), then retry `loadMedia` with a known-good HTTPS MP4 (e.g., BigBuckBunny).
 - Devices not found: ensure the phone and Chromecast are on the same WiFi and Google Play Services is up to date.
+- DLNA TV does not appear: connect the phone and TV to the same local network (not a guest WiFi network), disable access-point/client isolation, and enable DLNA/UPnP on the TV. The TV must advertise a `MediaRenderer` with `AVTransport`; being powered on alone is not enough.
