@@ -124,6 +124,30 @@ public class DlnaManager {
         return device != null ? device.getName() : null;
     }
 
+    public Map<String, String> getPlaybackDiagnostics() {
+        Map<String, String> result = new LinkedHashMap<>();
+        Device device = selectedDevice;
+        if (device == null) return result;
+        result.put("deviceName", device.name);
+        result.put("location", device.location);
+        result.put("controlUrl", device.controlUrl);
+        result.put("serviceType", device.serviceType);
+        DlnaMediaProxy proxy = mediaProxy;
+        result.put("relay", proxy != null ? proxy.getDiagnostic() : "none");
+        Document position = querySoapDocument(device, "GetPositionInfo");
+        if (position != null) {
+            for (String field : new String[] { "TrackDuration", "RelTime", "TrackURI", "TrackMetaData" }) {
+                result.put(field, firstElementText(position, field));
+            }
+        }
+        Document transport = querySoapDocument(device, "GetTransportInfo");
+        if (transport != null) {
+            result.put("CurrentTransportState", firstElementText(transport, "CurrentTransportState"));
+            result.put("CurrentTransportStatus", firstElementText(transport, "CurrentTransportStatus"));
+        }
+        return result;
+    }
+
     public void selectDevice(Device device) {
         closeMediaProxy();
         selectedDevice = device;
@@ -652,8 +676,9 @@ public class DlnaManager {
                     subtitle,
                     imageUrl,
                     hlsRelay ? "video/mpeg" : mimeType,
-                    hlsRelay,
-                    duration
+                    hlsRelay && !mediaProxy.supportsByteSeeking(),
+                    duration,
+                    mediaProxy.getHlsContentLength()
                 );
                 Logger.info(TAG, hlsRelay
                     ? "Using local MPEG-TS HLS relay for DLNA renderer"
@@ -908,6 +933,19 @@ public class DlnaManager {
         boolean streaming,
         double duration
     ) {
+        return buildDidlMetadata(url, title, subtitle, imageUrl, mimeType, streaming, duration, -1);
+    }
+
+    private String buildDidlMetadata(
+        String url,
+        String title,
+        String subtitle,
+        String imageUrl,
+        String mimeType,
+        boolean streaming,
+        double duration,
+        long size
+    ) {
         String safeTitle = title != null && !title.isEmpty() ? title : "Video";
         StringBuilder metadata = new StringBuilder();
         metadata.append("<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\"")
@@ -937,6 +975,7 @@ public class DlnaManager {
                     milliseconds % 1000))
                 .append("\"");
         }
+        if (size > 0) metadata.append(" size=\"").append(size).append("\"");
         metadata.append(">")
             .append(escapeXml(url))
             .append("</res></item></DIDL-Lite>");

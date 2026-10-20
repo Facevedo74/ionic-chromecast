@@ -615,6 +615,7 @@ export class CastButtonComponent implements OnInit {
 * [`requestSession()`](#requestsession)
 * [`requestCastSession()`](#requestcastsession)
 * [`isSessionActive()`](#issessionactive)
+* [`getDlnaDiagnostics()`](#getdlnadiagnostics)
 * [`areDevicesAvailable()`](#aredevicesavailable)
 * [`loadMedia(...)`](#loadmedia)
 * [`endSession()`](#endsession)
@@ -696,6 +697,21 @@ isSessionActive() => Promise<SessionStatusResult>
 Check if there is an active Google Cast or selected DLNA session (Android only)
 
 **Returns:** <code>Promise&lt;<a href="#sessionstatusresult">SessionStatusResult</a>&gt;</code>
+
+--------------------
+
+
+### getDlnaDiagnostics()
+
+```typescript
+getDlnaDiagnostics() => Promise<DlnaPlaybackDiagnostics>
+```
+
+Read the selected DLNA renderer's UPnP playback state and local relay diagnostics (Android only).
+Some renderers report TrackDuration as zero even when their native player shows the duration.
+Returns an empty object when no DLNA device is selected.
+
+**Returns:** <code>Promise&lt;<a href="#dlnaplaybackdiagnostics">DlnaPlaybackDiagnostics</a>&gt;</code>
 
 --------------------
 
@@ -790,6 +806,23 @@ Listen to Chromecast events (Android only)
 | **`message`**    | <code>string</code>                                             |
 | **`transport`**  | <code><a href="#playbacktransport">PlaybackTransport</a></code> |
 | **`deviceName`** | <code>string</code>                                             |
+
+
+#### DlnaPlaybackDiagnostics
+
+| Prop                         | Type                |
+| ---------------------------- | ------------------- |
+| **`deviceName`**             | <code>string</code> |
+| **`location`**               | <code>string</code> |
+| **`controlUrl`**             | <code>string</code> |
+| **`serviceType`**            | <code>string</code> |
+| **`relay`**                  | <code>string</code> |
+| **`TrackDuration`**          | <code>string</code> |
+| **`RelTime`**                | <code>string</code> |
+| **`TrackURI`**               | <code>string</code> |
+| **`TrackMetaData`**          | <code>string</code> |
+| **`CurrentTransportState`**  | <code>string</code> |
+| **`CurrentTransportStatus`** | <code>string</code> |
 
 
 #### DevicesAvailableResult

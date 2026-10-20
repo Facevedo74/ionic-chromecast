@@ -228,20 +228,22 @@ window.playVideo = async (format = 'mp4') => {
         const isHls = format === 'hls';
         const isLongMp4 = format === 'long-mp4';
         const videoUrl = isHls
-            ? 'https://r2.animeslime.online/N/Naruto/LAT/Naruto%20Latino%20-%20001/index.m3u8'
+            ? document.getElementById('hlsUrl').value.trim()
             : isLongMp4
                 ? 'https://dn721902.ca.archive.org/0/items/youtube-aqz-KE-bpKQ/aqz-KE-bpKQ.mp4'
                 : 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
         const contentType = isHls ? 'application/x-mpegurl' : 'video/mp4';
-        appendLog(`STEP 4: loadMedia url=${videoUrl} ct=${contentType} receiver=${DEFAULT_RECEIVER_ID}`);
+        const duration = isHls ? Number(document.getElementById('hlsDuration').value) : isLongMp4 ? 581.248 : 5;
+        if (!Number.isFinite(duration) || duration <= 0) throw new Error('La duración debe ser mayor que cero.');
+        appendLog(`STEP 4: loadMedia url=${videoUrl} ct=${contentType} durationSeconds=${duration} receiver=${DEFAULT_RECEIVER_ID}`);
 
         const result = await IonicChromecast.loadMedia({
             url: videoUrl,
             metadata: {
-                title: isHls ? 'Naruto Latino - 001' : isLongMp4 ? 'W3C WAI-Tools Overview' : 'Flower',
+                title: isHls ? 'HLS duration test' : isLongMp4 ? 'W3C WAI-Tools Overview' : 'Flower',
                 subtitle: isHls ? 'HLS test' : isLongMp4 ? 'Long MP4 seek test' : 'MDN sample video',
                 contentType,
-                ...(isHls ? {} : { duration: isLongMp4 ? 581.248 : 5 })
+                duration
             }
         });
         
@@ -264,6 +266,19 @@ window.playVideo = async (format = 'mp4') => {
         appendLog('❌ EXCEPTION: ' + (e?.message || e));
     }
 }
+
+window.readDlnaDiagnostics = async () => {
+    const output = document.getElementById('dlnaDiagnostics');
+    try {
+        const result = await IonicChromecast.getDlnaDiagnostics();
+        output.textContent = JSON.stringify(result, null, 2);
+        appendLog('DLNA diagnostics => ' + JSON.stringify(result));
+        return result;
+    } catch (error) {
+        output.textContent = error?.message || String(error);
+        throw error;
+    }
+};
 
 // Stop active Cast session
 window.stopCasting = async () => {

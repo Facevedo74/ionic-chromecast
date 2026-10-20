@@ -147,6 +147,10 @@ public class IonicChromecast {
         return dlnaManager != null ? dlnaManager.getLastDiscoveryReport() : "DLNA discovery is not initialized";
     }
 
+    public java.util.Map<String, String> getDlnaPlaybackDiagnostics() {
+        return dlnaManager != null ? dlnaManager.getPlaybackDiagnostics() : java.util.Collections.emptyMap();
+    }
+
     public void selectDlnaDevice(DlnaManager.Device device) {
         if (dlnaManager != null) {
             dlnaManager.selectDevice(device);

@@ -49,6 +49,20 @@ export interface LoadMediaResult {
   transport?: PlaybackTransport;
 }
 
+export interface DlnaPlaybackDiagnostics {
+  deviceName?: string;
+  location?: string;
+  controlUrl?: string;
+  serviceType?: string;
+  relay?: string;
+  TrackDuration?: string;
+  RelTime?: string;
+  TrackURI?: string;
+  TrackMetaData?: string;
+  CurrentTransportState?: string;
+  CurrentTransportStatus?: string;
+}
+
 export interface PluginListenerHandle {
   remove: () => Promise<void>;
 }
@@ -93,6 +107,13 @@ export interface IonicChromecastPlugin {
    * Check if there is an active Google Cast or selected DLNA session (Android only)
    */
   isSessionActive(): Promise<SessionStatusResult>;
+
+  /**
+   * Read the selected DLNA renderer's UPnP playback state and local relay diagnostics (Android only).
+   * Some renderers report TrackDuration as zero even when their native player shows the duration.
+   * Returns an empty object when no DLNA device is selected.
+   */
+  getDlnaDiagnostics(): Promise<DlnaPlaybackDiagnostics>;
 
   /**
    * Check if there are available Google Cast or DLNA/UPnP devices (Android only)

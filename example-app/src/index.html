@@ -52,6 +52,12 @@
           <span id="sessionStatus" style="margin-left: 10px; font-weight: 600;">—</span>
         </div>
         <div style="margin-top: 12px;">
+          <label for="hlsUrl">HLS URL</label><br />
+          <input id="hlsUrl" type="url" style="width: 100%; box-sizing: border-box;" value="https://r2.animeslime.online/D/Doumo, Suki na Hito ni Horegusuri wo Irai sareta Majo desu/Doumo, Suki na Hito ni Horegusuri wo Irai sareta Majo desu - 03/master.m3u8" /><br />
+          <label for="hlsDuration">Duración HLS enviada (segundos)</label>
+          <input id="hlsDuration" type="number" min="0.001" step="any" value="1420.002345" />
+        </div>
+        <div style="margin-top: 12px;">
           <button onclick="stopCasting()" style="padding: 10px 20px; background: #222428; color: white; border: none; border-radius: 4px; cursor: pointer;">
             Stop Cast Session
           </button>
@@ -67,6 +73,10 @@
             Play Long MP4 Test
           </button>
           <span id="playStatus" style="margin-left: 10px; font-weight: 600;">—</span>
+        </div>
+        <div style="margin-top: 12px;">
+          <button onclick="readDlnaDiagnostics()">Consultar duración reconocida por el TV</button>
+          <pre id="dlnaDiagnostics" style="white-space: pre-wrap; overflow-wrap: anywhere;">—</pre>
         </div>
       </section>
 

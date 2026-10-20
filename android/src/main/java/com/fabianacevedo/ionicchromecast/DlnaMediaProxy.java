@@ -21,6 +21,12 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Relays public HTTPS MP4 or unencrypted MPEG-TS HLS over local HTTP.
@@ -35,6 +41,7 @@ final class DlnaMediaProxy {
     private final boolean hlsTransportStream;
     private final double durationSeconds;
     private final List<URL> hlsSegments;
+    private final long[] hlsSegmentOffsets;
     private final ServerSocket server;
     private final String path;
     private final AtomicInteger requests = new AtomicInteger();
@@ -79,6 +86,7 @@ final class DlnaMediaProxy {
         this.hlsTransportStream = hlsTransportStream;
         this.durationSeconds = Double.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 0;
         hlsSegments = hlsTransportStream ? readHlsSegments() : null;
+        hlsSegmentOffsets = hlsTransportStream ? indexHlsSegments() : null;
         path = "/ionic-chromecast/" + UUID.randomUUID().toString()
             + (hlsTransportStream ? "/video.mpg" : "/video.mp4");
         server = new ServerSocket(0, 16, listenAddress);
@@ -91,10 +99,18 @@ final class DlnaMediaProxy {
         return "http://" + server.getInetAddress().getHostAddress() + ":" + server.getLocalPort() + path;
     }
 
+    long getHlsContentLength() {
+        return hlsSegmentOffsets != null ? hlsSegmentOffsets[hlsSegmentOffsets.length - 1] : -1;
+    }
+
+    boolean supportsByteSeeking() {
+        return hlsSegmentOffsets != null;
+    }
+
     String getDiagnostic() {
         return "requests=" + requests.get() + ", GETs=" + getRequests.get()
             + ", complete=" + completedGets.get() + ", failed=" + failedRequests.get()
-            + ", bytes=" + bytesSent.get() + ", last=" + lastRequestResult
+            + ", bytes=" + bytesSent.get() + ", length=" + getHlsContentLength() + ", last=" + lastRequestResult
             + (hlsTransportStream ? ", request=" + lastRequestHeaders + ", origin=" + hlsOriginDebug : "");
     }
 
@@ -165,7 +181,7 @@ final class DlnaMediaProxy {
             lastRequestHeaders = method + " range=" + range + " agent=" + userAgent;
 
             if (hlsTransportStream) {
-                serveHls(method, output);
+                serveHls(method, range, output);
                 return;
             }
 
@@ -399,6 +415,149 @@ final class DlnaMediaProxy {
             output.write("0\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
             completedGets.incrementAndGet();
             lastRequestResult = "HLS stream complete";
+        }
+    }
+
+    private long[] indexHlsSegments() {
+        ExecutorService workers = Executors.newFixedThreadPool(Math.min(8, hlsSegments.size()), runnable -> {
+            Thread thread = new Thread(runnable, "IonicChromecast-HLS-Index");
+            thread.setDaemon(true);
+            return thread;
+        });
+        CompletionService<long[]> completed = new ExecutorCompletionService<>(workers);
+        try {
+            for (int i = 0; i < hlsSegments.size(); i++) {
+                final int index = i;
+                completed.submit(() -> {
+                    HttpURLConnection connection = (HttpURLConnection) (wifiNetwork != null
+                        ? wifiNetwork.openConnection(hlsSegments.get(index)) : hlsSegments.get(index).openConnection());
+                    try {
+                        connection.setConnectTimeout(4000);
+                        connection.setReadTimeout(4000);
+                        connection.setRequestMethod("HEAD");
+                        connection.setRequestProperty("Accept-Encoding", "identity");
+                        if (connection.getResponseCode() != 200 || connection.getContentLengthLong() <= 0) {
+                            throw new IOException("Segment size unavailable at index " + index);
+                        }
+                        return new long[] { index, connection.getContentLengthLong() };
+                    } finally {
+                        connection.disconnect();
+                    }
+                });
+            }
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
+            long[] sizes = new long[hlsSegments.size()];
+            for (int i = 0; i < sizes.length; i++) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) throw new IOException("HLS size index timed out");
+                Future<long[]> future = completed.poll(remaining, TimeUnit.NANOSECONDS);
+                if (future == null) throw new IOException("HLS size index timed out");
+                long[] item = future.get();
+                sizes[(int) item[0]] = item[1];
+            }
+            long[] offsets = new long[sizes.length + 1];
+            for (int i = 0; i < sizes.length; i++) {
+                offsets[i + 1] = Math.addExact(offsets[i], sizes[i]);
+            }
+            Logger.info(TAG, "HLS VOD indexed: segments=" + sizes.length + ", bytes=" + offsets[sizes.length]);
+            return offsets;
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            Logger.warn(TAG, "HLS size index unavailable; preserving sequential relay: " + e.getMessage());
+            return null;
+        } finally {
+            workers.shutdownNow();
+        }
+    }
+
+    private void serveHls(String method, String range, OutputStream output) throws IOException {
+        if (!supportsByteSeeking()) {
+            serveHls(method, output);
+            return;
+        }
+        long total = getHlsContentLength();
+        long start = 0;
+        long end = total - 1;
+        if (range != null) {
+            try {
+                String[] bounds = range.substring("bytes=".length()).split("-", -1);
+                if (bounds.length != 2) throw new IllegalArgumentException();
+                if (bounds[0].isEmpty()) {
+                    long suffix = Long.parseLong(bounds[1]);
+                    if (suffix <= 0) throw new IllegalArgumentException();
+                    start = Math.max(0, total - suffix);
+                } else {
+                    start = Long.parseLong(bounds[0]);
+                    if (!bounds[1].isEmpty()) end = Math.min(end, Long.parseLong(bounds[1]));
+                }
+                if (start < 0 || start >= total || end < start) throw new IllegalArgumentException();
+            } catch (RuntimeException invalidRange) {
+                output.write(("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */" + total
+                    + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+                return;
+            }
+        }
+        StringBuilder headers = new StringBuilder(range == null ? "HTTP/1.1 200 OK" : "HTTP/1.1 206 Partial Content")
+            .append("\r\nContent-Type: video/mpeg\r\nAccept-Ranges: bytes\r\nContent-Length: ").append(end - start + 1)
+            .append("\r\ntransferMode.dlna.org: Streaming")
+            .append("\r\ncontentFeatures.dlna.org: DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000")
+            .append("\r\nConnection: close\r\n");
+        if (range != null) headers.append("Content-Range: bytes ").append(start).append('-').append(end).append('/').append(total).append("\r\n");
+        if (durationSeconds > 0) {
+            headers.append("Content-Duration: ").append(durationSeconds).append("\r\n")
+                .append("X-Content-Duration: ").append(durationSeconds).append("\r\n");
+        }
+        headers.append("\r\n");
+        Logger.info(TAG, "HLS VOD " + method + ": range=" + range + ", bytes=" + start + "-" + end + "/" + total
+            + ", durationSeconds=" + durationSeconds);
+        output.write(headers.toString().getBytes(StandardCharsets.ISO_8859_1));
+        if ("HEAD".equals(method)) return;
+
+        byte[] buffer = new byte[64 * 1024];
+        for (int i = 0; i < hlsSegments.size() && !closed; i++) {
+            if (hlsSegmentOffsets[i + 1] <= start) continue;
+            if (hlsSegmentOffsets[i] > end) break;
+            long segmentStart = Math.max(0, start - hlsSegmentOffsets[i]);
+            long segmentEnd = Math.min(hlsSegmentOffsets[i + 1] - hlsSegmentOffsets[i] - 1, end - hlsSegmentOffsets[i]);
+            HttpURLConnection upstream = (HttpURLConnection) (wifiNetwork != null
+                ? wifiNetwork.openConnection(hlsSegments.get(i)) : hlsSegments.get(i).openConnection());
+            try {
+                upstream.setConnectTimeout(10000);
+                upstream.setReadTimeout(15000);
+                upstream.setRequestProperty("Accept-Encoding", "identity");
+                upstream.setRequestProperty("Range", "bytes=" + segmentStart + "-" + segmentEnd);
+                int status = upstream.getResponseCode();
+                if (status != 200 && status != 206) throw new IOException("HLS segment HTTP " + status);
+                if (status == 206) {
+                    String expected = "bytes " + segmentStart + "-" + segmentEnd + "/" + (hlsSegmentOffsets[i + 1] - hlsSegmentOffsets[i]);
+                    if (!expected.equals(upstream.getHeaderField("Content-Range"))) throw new IOException("Unexpected HLS segment Content-Range");
+                } else if (upstream.getContentLengthLong() >= 0
+                    && upstream.getContentLengthLong() != hlsSegmentOffsets[i + 1] - hlsSegmentOffsets[i]) {
+                    throw new IOException("HLS segment size changed after indexing");
+                }
+                try (InputStream media = upstream.getInputStream()) {
+                    long skip = status == 200 ? segmentStart : 0;
+                    while (skip > 0 && !closed) {
+                        int count = media.read(buffer, 0, (int) Math.min(buffer.length, skip));
+                        if (count < 0) throw new IOException("HLS segment ended before range start");
+                        skip -= count;
+                    }
+                    long remaining = segmentEnd - segmentStart + 1;
+                    while (remaining > 0 && !closed) {
+                        int count = media.read(buffer, 0, (int) Math.min(buffer.length, remaining));
+                        if (count < 0) throw new IOException("HLS segment ended before range end");
+                        output.write(buffer, 0, count);
+                        bytesSent.addAndGet(count);
+                        remaining -= count;
+                    }
+                }
+            } finally {
+                upstream.disconnect();
+            }
+        }
+        if (!closed) {
+            if (start == 0 && end == total - 1) completedGets.incrementAndGet();
+            lastRequestResult = "HLS VOD range complete " + start + "-" + end + "/" + total;
         }
     }
 

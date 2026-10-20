@@ -6,6 +6,7 @@ import type {
   ChromecastEventType,
   ChromecastEvent,
   PluginListenerHandle,
+  DlnaPlaybackDiagnostics,
 } from './definitions';
 
 export class IonicChromecastWeb extends WebPlugin implements IonicChromecastPlugin {
@@ -39,6 +40,10 @@ export class IonicChromecastWeb extends WebPlugin implements IonicChromecastPlug
   async areDevicesAvailable(): Promise<{ available: boolean; message?: string }> {
     console.warn('areDevicesAvailable() is not supported on web.');
     return { available: false, message: 'Google Cast and DLNA device detection is only available on Android.' };
+  }
+
+  async getDlnaDiagnostics(): Promise<DlnaPlaybackDiagnostics> {
+    throw this.unimplemented('DLNA diagnostics are only available on Android.');
   }
 
   async loadMedia(_: { url: string; metadata?: any }): Promise<{ success: boolean; message?: string }> {

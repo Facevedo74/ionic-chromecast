@@ -296,6 +296,18 @@ public class IonicChromecastPlugin extends Plugin {
         call.resolve(ret);
     }
 
+    // Read-only diagnostics for the selected DLNA renderer; never changes playback.
+    @PluginMethod
+    public void getDlnaDiagnostics(PluginCall call) {
+        new Thread(() -> {
+            JSObject result = new JSObject();
+            for (java.util.Map.Entry<String, String> entry : implementation.getDlnaPlaybackDiagnostics().entrySet()) {
+                result.put(entry.getKey(), entry.getValue());
+            }
+            call.resolve(result);
+        }, "IonicChromecast-DLNA-Diagnostics").start();
+    }
+
     /**
      * Carga media en el dispositivo
      */
