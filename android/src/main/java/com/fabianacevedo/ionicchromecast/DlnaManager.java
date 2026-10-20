@@ -633,9 +633,8 @@ public class DlnaManager {
         String mimeType = normalizeContentType(url, contentType);
         String metadata = buildDidlMetadata(url, title, subtitle, imageUrl, mimeType);
         String playbackUrl = url;
-        boolean hlsRelay = device.isSamsung()
-            && (url.toLowerCase(Locale.US).contains(".m3u8")
-                || mimeType.toLowerCase(Locale.US).contains("mpegurl"));
+        boolean hlsRelay = url.toLowerCase(Locale.US).contains(".m3u8")
+            || mimeType.toLowerCase(Locale.US).contains("mpegurl");
         closeMediaProxy();
         if (hlsRelay || (device.isSamsung() && url.toLowerCase(Locale.US).startsWith("https://")
             && mimeType.toLowerCase(Locale.US).startsWith("video/mp4"))) {
@@ -651,10 +650,10 @@ public class DlnaManager {
                     hlsRelay
                 );
                 Logger.info(TAG, hlsRelay
-                    ? "Using local MPEG-TS HLS relay for Samsung DLNA renderer"
+                    ? "Using local MPEG-TS HLS relay for DLNA renderer"
                     : "Using local HTTP media relay for Samsung DLNA renderer");
             } catch (Exception e) {
-                lastError = "Could not start Samsung DLNA media relay: " + e.getMessage();
+                lastError = "Could not start DLNA media relay: " + e.getMessage();
                 Logger.error(TAG, lastError, e);
                 return false;
             }

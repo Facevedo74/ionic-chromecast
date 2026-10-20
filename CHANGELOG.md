@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.13] - 2026-10-19
+
+### Fixed
+- Follow the highest-bandwidth variant in HLS master playlists and allow discontinuity markers in compatible MPEG-TS VOD streams.
+- Report unsupported HLS playlist features with a specific error.
+
+## [0.0.12] - 2026-10-19
+
+### Fixed
+- Relay compatible HLS VOD playlists over local HTTP for all DLNA renderers instead of sending `.m3u8` URLs directly to the TV.
+
 ## [0.0.7] - 2026-01-04
 
 ### Changed

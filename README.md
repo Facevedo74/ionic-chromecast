@@ -101,7 +101,7 @@ await IonicChromecast.loadMedia({
 });
 ```
 
-> DLNA sends the public URL to the television; the phone does not proxy the video. Actual MP4/HLS codec, container and HTTPS support depend on the television's native media renderer.
+> DLNA sends public media URLs directly to the television except for HTTPS MP4 on Samsung and HLS streams, which are relayed over the local network. The HLS relay supports complete, unencrypted VOD playlists with same-origin MPEG-TS (`.ts`) segments, including master playlists (the highest-bandwidth variant is selected) and discontinuities. Live playlists, encryption, separate audio renditions, byte-range segments, and initialization maps are not supported. Actual codec/container support depends on the television's media renderer.
 
 ### Test the example app
 

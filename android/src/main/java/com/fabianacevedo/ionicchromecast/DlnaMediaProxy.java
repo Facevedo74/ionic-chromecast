@@ -209,11 +209,19 @@ final class DlnaMediaProxy {
     }
 
     private List<URL> readHlsSegments() throws IOException {
+        return readHlsSegments(source, 0);
+    }
+
+    private List<URL> readHlsSegments(URL playlistUrl, int nestingDepth) throws IOException {
+        if (nestingDepth > 3) {
+            throw new IOException("HLS master playlist nesting is too deep");
+        }
+
         HttpURLConnection playlist = null;
         try {
             playlist = (HttpURLConnection) (wifiNetwork != null
-                ? wifiNetwork.openConnection(source)
-                : source.openConnection());
+                ? wifiNetwork.openConnection(playlistUrl)
+                : playlistUrl.openConnection());
             playlist.setConnectTimeout(10000);
             playlist.setReadTimeout(15000);
             playlist.setInstanceFollowRedirects(true);
@@ -234,9 +242,14 @@ final class DlnaMediaProxy {
                 }
             }
 
-            String manifest = bytes.toString(StandardCharsets.UTF_8.name());
+            URL effectivePlaylistUrl = playlist.getURL();
+            String manifest = bytes.toString(StandardCharsets.UTF_8.name()).replaceFirst("^\\uFEFF", "");
             if (!manifest.startsWith("#EXTM3U")) throw new IOException("Invalid HLS playlist");
+
             List<URL> segments = new ArrayList<>();
+            URL highestBandwidthVariant = null;
+            long highestBandwidth = -1;
+            long pendingBandwidth = -1;
             boolean ended = false;
             for (String rawLine : manifest.split("\\r?\\n")) {
                 String line = rawLine.trim();
@@ -245,19 +258,39 @@ final class DlnaMediaProxy {
                 if (line.startsWith("#EXT-X-KEY:") && !line.contains("METHOD=NONE")) {
                     throw new IOException("Encrypted HLS is not supported by the DLNA relay");
                 }
-                if (line.startsWith("#EXT-X-MAP:") || line.startsWith("#EXT-X-BYTERANGE:")
-                    || line.startsWith("#EXT-X-STREAM-INF:") || line.startsWith("#EXT-X-DISCONTINUITY")) {
-                    throw new IOException("This HLS playlist requires a format not supported by the DLNA relay");
+                if (line.startsWith("#EXT-X-MAP:") || line.startsWith("#EXT-X-BYTERANGE:")) {
+                    throw new IOException("HLS initialization maps and byte-range segments are not supported by the DLNA relay");
+                }
+                if (line.startsWith("#EXT-X-STREAM-INF:")) {
+                    pendingBandwidth = parseBandwidth(line);
+                    continue;
                 }
                 if (line.startsWith("#")) continue;
-                URL segment = new URL(source, line);
-                if (!source.getProtocol().equalsIgnoreCase(segment.getProtocol())
-                    || !source.getHost().equalsIgnoreCase(segment.getHost())
+
+                URL resource = new URL(effectivePlaylistUrl, line);
+                if (pendingBandwidth >= 0) {
+                    if (!isSameOrigin(source, resource)) {
+                        throw new IOException("HLS variants must use the same origin as the master playlist");
+                    }
+                    if (pendingBandwidth > highestBandwidth) {
+                        highestBandwidth = pendingBandwidth;
+                        highestBandwidthVariant = resource;
+                    }
+                    pendingBandwidth = -1;
+                    continue;
+                }
+
+                URL segment = resource;
+                if (!isSameOrigin(source, segment)
                     || !segment.getPath().toLowerCase(Locale.US).endsWith(".ts")) {
                     throw new IOException("HLS relay requires same-host MPEG-TS segments");
                 }
                 segments.add(segment);
                 if (segments.size() > 4096) throw new IOException("HLS playlist has too many segments");
+            }
+
+            if (highestBandwidthVariant != null) {
+                return readHlsSegments(highestBandwidthVariant, nestingDepth + 1);
             }
             if (!ended || segments.isEmpty()) {
                 throw new IOException("HLS relay requires a complete MPEG-TS VOD playlist");
@@ -267,6 +300,26 @@ final class DlnaMediaProxy {
         } finally {
             if (playlist != null) playlist.disconnect();
         }
+    }
+
+    private long parseBandwidth(String streamInfo) throws IOException {
+        for (String attribute : streamInfo.substring(streamInfo.indexOf(':') + 1).split(",")) {
+            String[] keyValue = attribute.trim().split("=", 2);
+            if (keyValue.length == 2 && "BANDWIDTH".equals(keyValue[0])) {
+                try {
+                    return Long.parseLong(keyValue[1]);
+                } catch (NumberFormatException e) {
+                    throw new IOException("Invalid HLS variant bandwidth", e);
+                }
+            }
+        }
+        throw new IOException("HLS variant is missing its BANDWIDTH attribute");
+    }
+
+    private boolean isSameOrigin(URL expected, URL candidate) {
+        return expected.getProtocol().equalsIgnoreCase(candidate.getProtocol())
+            && expected.getHost().equalsIgnoreCase(candidate.getHost())
+            && expected.getPort() == candidate.getPort();
     }
 
     private void serveHls(String method, OutputStream output) throws IOException {
