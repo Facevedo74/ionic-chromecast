@@ -405,8 +405,12 @@ public class IonicChromecast {
      * Envía media al dispositivo Cast (flujo básico)
      */
     public boolean loadMedia(String url, String title, String subtitle, String imageUrl, String contentType) {
+        return loadMedia(url, title, subtitle, imageUrl, contentType, 0);
+    }
+
+    public boolean loadMedia(String url, String title, String subtitle, String imageUrl, String contentType, double duration) {
         if (isDlnaSessionActive()) {
-            boolean success = dlnaManager.loadMedia(url, title, subtitle, imageUrl, contentType);
+            boolean success = dlnaManager.loadMedia(url, title, subtitle, imageUrl, contentType, duration);
             lastError = success ? null : dlnaManager.getLastError();
             return success;
         }
@@ -442,11 +446,15 @@ public class IonicChromecast {
                 if (imageUrl != null && !imageUrl.isEmpty()) md.addImage(new WebImage(android.net.Uri.parse(imageUrl)));
 
                 String ct = (contentType != null && !contentType.isEmpty()) ? contentType : "video/mp4";
-                MediaInfo mediaInfo = new MediaInfo.Builder(effectiveUrl)
+                MediaInfo.Builder mediaInfoBuilder = new MediaInfo.Builder(effectiveUrl)
                     .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
                     .setContentType(ct)
-                    .setMetadata(md)
-                    .build();
+                    .setMetadata(md);
+                if (Double.isFinite(duration) && duration > 0 && duration < Long.MAX_VALUE / 1000.0) {
+                    // The frontend supplies seconds; the Cast Android SDK expects milliseconds.
+                    mediaInfoBuilder.setStreamDuration(Math.round(duration * 1000));
+                }
+                MediaInfo mediaInfo = mediaInfoBuilder.build();
 
                 CastSession session = castContext.getSessionManager().getCurrentCastSession();
                 if (session == null || !session.isConnected()) {

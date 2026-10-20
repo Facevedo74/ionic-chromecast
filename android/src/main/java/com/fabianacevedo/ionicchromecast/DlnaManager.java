@@ -619,6 +619,10 @@ public class DlnaManager {
     }
 
     public boolean loadMedia(String url, String title, String subtitle, String imageUrl, String contentType) {
+        return loadMedia(url, title, subtitle, imageUrl, contentType, 0);
+    }
+
+    public boolean loadMedia(String url, String title, String subtitle, String imageUrl, String contentType, double duration) {
         Device device = selectedDevice;
         if (device == null) {
             lastError = "No DLNA renderer selected";
@@ -631,7 +635,8 @@ public class DlnaManager {
         }
 
         String mimeType = normalizeContentType(url, contentType);
-        String metadata = buildDidlMetadata(url, title, subtitle, imageUrl, mimeType);
+        Logger.info(TAG, "DLNA load: durationSeconds=" + duration + ", contentType=" + mimeType);
+        String metadata = buildDidlMetadata(url, title, subtitle, imageUrl, mimeType, false, duration);
         String playbackUrl = url;
         boolean hlsRelay = url.toLowerCase(Locale.US).contains(".m3u8")
             || mimeType.toLowerCase(Locale.US).contains("mpegurl");
@@ -639,7 +644,7 @@ public class DlnaManager {
         if (hlsRelay || (device.isSamsung() && url.toLowerCase(Locale.US).startsWith("https://")
             && mimeType.toLowerCase(Locale.US).startsWith("video/mp4"))) {
             try {
-                mediaProxy = startMediaProxy(device, url, hlsRelay);
+                mediaProxy = startMediaProxy(device, url, hlsRelay, duration);
                 playbackUrl = mediaProxy.getMediaUrl();
                 metadata = buildDidlMetadata(
                     playbackUrl,
@@ -647,7 +652,8 @@ public class DlnaManager {
                     subtitle,
                     imageUrl,
                     hlsRelay ? "video/mpeg" : mimeType,
-                    hlsRelay
+                    hlsRelay,
+                    duration
                 );
                 Logger.info(TAG, hlsRelay
                     ? "Using local MPEG-TS HLS relay for DLNA renderer"
@@ -681,6 +687,7 @@ public class DlnaManager {
             + "<CurrentURIMetaData>" + escapeXml(metadata) + "</CurrentURIMetaData>";
 
         if (!sendSoap(device, "SetAVTransportURI", setUriArguments)) {
+            Logger.warn(TAG, "DLNA renderer rejected DIDL metadata containing durationSeconds=" + duration);
             Logger.warn(TAG, "Retrying SetAVTransportURI without metadata for compatibility");
             setUriArguments = "<InstanceID>0</InstanceID>"
                 + "<CurrentURI>" + escapeXml(playbackUrl) + "</CurrentURI>"
@@ -730,6 +737,14 @@ public class DlnaManager {
         if (played) {
             lastError = null;
             Logger.info(TAG, "DLNA playback started on " + device.getName());
+            if (hlsRelay) {
+                new Thread(() -> {
+                    Document position = querySoapDocument(device, "GetPositionInfo");
+                    Logger.info(TAG, "DLNA duration diagnostic: sentSeconds=" + duration
+                        + ", rendererTrackDuration=" + (position != null
+                            ? firstElementText(position, "TrackDuration") : "unavailable"));
+                }, "IonicChromecast-DLNA-Duration").start();
+            }
         } else {
             if (device.isSamsung()) {
                 lastError = "Samsung hint=" + samsungHintAccepted
@@ -823,6 +838,10 @@ public class DlnaManager {
     }
 
     private DlnaMediaProxy startMediaProxy(Device device, String url, boolean hlsTransportStream) throws Exception {
+        return startMediaProxy(device, url, hlsTransportStream, 0);
+    }
+
+    private DlnaMediaProxy startMediaProxy(Device device, String url, boolean hlsTransportStream, double duration) throws Exception {
         ConnectivityManager manager =
             (ConnectivityManager) appContext.getSystemService(Context.CONNECTIVITY_SERVICE);
         Network wifi = findWifiNetwork(manager);
@@ -831,7 +850,7 @@ public class DlnaManager {
             for (LinkAddress address : properties.getLinkAddresses()) {
                 if (address.getAddress() instanceof Inet4Address && !address.getAddress().isLoopbackAddress()) {
                     InetAddress renderer = InetAddress.getByName(new URL(device.controlUrl).getHost());
-                    return new DlnaMediaProxy(wifi, address.getAddress(), renderer, url, hlsTransportStream);
+                    return new DlnaMediaProxy(wifi, address.getAddress(), renderer, url, hlsTransportStream, duration);
                 }
             }
         }
@@ -877,6 +896,18 @@ public class DlnaManager {
         String mimeType,
         boolean streaming
     ) {
+        return buildDidlMetadata(url, title, subtitle, imageUrl, mimeType, streaming, 0);
+    }
+
+    private String buildDidlMetadata(
+        String url,
+        String title,
+        String subtitle,
+        String imageUrl,
+        String mimeType,
+        boolean streaming,
+        double duration
+    ) {
         String safeTitle = title != null && !title.isEmpty() ? title : "Video";
         StringBuilder metadata = new StringBuilder();
         metadata.append("<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\"")
@@ -895,7 +926,18 @@ public class DlnaManager {
             .append(escapeXml(mimeType))
             .append(":")
             .append(streaming ? "*" : DLNA_FLAGS)
-            .append("\">")
+            .append("\"");
+        if (Double.isFinite(duration) && duration > 0 && duration < Long.MAX_VALUE / 1000.0) {
+            long milliseconds = Math.round(duration * 1000);
+            metadata.append(" duration=\"")
+                .append(String.format(Locale.US, "%d:%02d:%02d.%03d",
+                    milliseconds / 3600000,
+                    (milliseconds / 60000) % 60,
+                    (milliseconds / 1000) % 60,
+                    milliseconds % 1000))
+                .append("\"");
+        }
+        metadata.append(">")
             .append(escapeXml(url))
             .append("</res></item></DIDL-Lite>");
         return metadata.toString();

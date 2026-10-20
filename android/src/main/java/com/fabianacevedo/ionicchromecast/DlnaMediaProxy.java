@@ -33,6 +33,7 @@ final class DlnaMediaProxy {
     private final InetAddress rendererAddress;
     private final URL source;
     private final boolean hlsTransportStream;
+    private final double durationSeconds;
     private final List<URL> hlsSegments;
     private final ServerSocket server;
     private final String path;
@@ -58,6 +59,17 @@ final class DlnaMediaProxy {
         String sourceUrl,
         boolean hlsTransportStream
     ) throws IOException {
+        this(wifiNetwork, listenAddress, rendererAddress, sourceUrl, hlsTransportStream, 0);
+    }
+
+    DlnaMediaProxy(
+        Network wifiNetwork,
+        InetAddress listenAddress,
+        InetAddress rendererAddress,
+        String sourceUrl,
+        boolean hlsTransportStream,
+        double durationSeconds
+    ) throws IOException {
         this.wifiNetwork = wifiNetwork;
         this.rendererAddress = rendererAddress;
         source = new URL(sourceUrl);
@@ -65,6 +77,7 @@ final class DlnaMediaProxy {
             throw new IOException("DLNA relay only accepts HTTPS media");
         }
         this.hlsTransportStream = hlsTransportStream;
+        this.durationSeconds = Double.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 0;
         hlsSegments = hlsTransportStream ? readHlsSegments() : null;
         path = "/ionic-chromecast/" + UUID.randomUUID().toString()
             + (hlsTransportStream ? "/video.mpg" : "/video.mp4");
@@ -323,8 +336,16 @@ final class DlnaMediaProxy {
     }
 
     private void serveHls(String method, OutputStream output) throws IOException {
+        // Compatibility hints for renderers that do not use the DIDL resource duration.
+        // They do not advertise seek support: this relay still serves a sequential stream.
+        String durationHeaders = durationSeconds > 0
+            ? "Content-Duration: " + Double.toString(durationSeconds) + "\r\n"
+                + "X-Content-Duration: " + Double.toString(durationSeconds) + "\r\n"
+            : "";
         String headers = "HTTP/1.1 200 OK\r\nContent-Type: video/mpeg\r\nConnection: close\r\n"
-            + "Transfer-Encoding: chunked\r\n\r\n";
+            + durationHeaders + "Transfer-Encoding: chunked\r\n\r\n";
+        Logger.info(TAG, "HLS relay " + method + ": durationSeconds=" + durationSeconds
+            + ", transfer=chunked, seekSupported=false");
         output.write(headers.getBytes(StandardCharsets.ISO_8859_1));
         if ("HEAD".equals(method)) return;
 

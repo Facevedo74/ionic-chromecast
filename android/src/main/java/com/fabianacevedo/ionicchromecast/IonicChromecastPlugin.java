@@ -307,6 +307,9 @@ public class IonicChromecastPlugin extends Plugin {
         String title = metadataObj != null ? metadataObj.getString("title") : null;
         String subtitle = metadataObj != null ? metadataObj.getString("subtitle") : null;
         String contentType = metadataObj != null ? metadataObj.getString("contentType") : null;
+        double durationSeconds = metadataObj != null ? metadataObj.optDouble("duration", 0) : 0;
+        final double duration = Double.isFinite(durationSeconds) && durationSeconds > 0
+            && durationSeconds < Long.MAX_VALUE / 1000.0 ? durationSeconds : 0;
         String imageUrl = null;
         if (metadataObj != null && metadataObj.has("images")) {
             try { imageUrl = metadataObj.getJSONArray("images").optString(0, null); } catch (Exception ignore) {}
@@ -315,13 +318,13 @@ public class IonicChromecastPlugin extends Plugin {
         final String finalImageUrl = imageUrl;
         if (implementation.isDlnaSessionActive()) {
             new Thread(
-                () -> resolveLoadMedia(call, url, title, subtitle, finalImageUrl, contentType),
+                () -> resolveLoadMedia(call, url, title, subtitle, finalImageUrl, contentType, duration),
                 "IonicChromecast-DLNA-Load"
             ).start();
             return;
         }
 
-        resolveLoadMedia(call, url, title, subtitle, imageUrl, contentType);
+        resolveLoadMedia(call, url, title, subtitle, imageUrl, contentType, duration);
     }
 
     private void resolveLoadMedia(
@@ -332,7 +335,19 @@ public class IonicChromecastPlugin extends Plugin {
         String imageUrl,
         String contentType
     ) {
-        boolean ok = implementation.loadMedia(url, title, subtitle, imageUrl, contentType);
+        resolveLoadMedia(call, url, title, subtitle, imageUrl, contentType, 0);
+    }
+
+    private void resolveLoadMedia(
+        PluginCall call,
+        String url,
+        String title,
+        String subtitle,
+        String imageUrl,
+        String contentType,
+        double duration
+    ) {
+        boolean ok = implementation.loadMedia(url, title, subtitle, imageUrl, contentType, duration);
         JSObject ret = new JSObject();
         ret.put("success", ok);
         String transport = implementation.getActiveTransport();
