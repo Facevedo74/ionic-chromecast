@@ -70,6 +70,7 @@ npx cap sync android
 - If DLNA televisions are found, the plugin displays a device-type chooser containing **Chromecast / Android TV (Google Cast)** and every discovered **DLNA / UPnP** television.
 - Selecting a DLNA television marks the playback session as active. The existing `loadMedia()` call then sends `SetAVTransportURI` followed by `Play` through UPnP AVTransport.
 - `requestCastSession()` is available when the application needs to bypass DLNA discovery and open the original Google Cast chooser immediately.
+- The `deviceChooserShown` listener event fires when either native device picker becomes visible, allowing apps to dismiss loading indicators without blocking the chooser.
 
 The same application flow works for both transports:
 
@@ -853,7 +854,7 @@ Listen to Chromecast events (Android only)
 
 #### ChromecastEventType
 
-<code>'sessionStarted' | 'sessionEnded' | 'mediaLoaded' | 'mediaError' | 'deviceAvailable' | 'deviceUnavailable' | 'volumeChanged' | 'playbackStatusChanged'</code>
+<code>'sessionStarted' | 'sessionEnded' | 'mediaLoaded' | 'mediaError' | 'deviceAvailable' | 'deviceUnavailable' | 'volumeChanged' | 'playbackStatusChanged' | 'deviceChooserShown'</code>
 
 </docgen-api>
 

@@ -218,6 +218,7 @@ public class IonicChromecastPlugin extends Plugin {
                 .create();
             dialog.setCanceledOnTouchOutside(true);
             dialog.show();
+            notifyListeners("deviceChooserShown", new JSObject());
         } catch (Exception e) {
             JSObject err = new JSObject();
             err.put("success", false);
@@ -264,6 +265,7 @@ public class IonicChromecastPlugin extends Plugin {
                 @Override public void onCancel(DialogInterface dialog) {}
             });
             chooserDialog.show();
+            notifyListeners("deviceChooserShown", new JSObject());
 
             JSObject ret = new JSObject();
             ret.put("success", true);

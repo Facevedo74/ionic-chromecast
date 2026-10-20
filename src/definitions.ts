@@ -61,7 +61,8 @@ export type ChromecastEventType =
   | 'deviceAvailable'
   | 'deviceUnavailable'
   | 'volumeChanged'
-  | 'playbackStatusChanged';
+  | 'playbackStatusChanged'
+  | 'deviceChooserShown';
 
 export interface ChromecastEvent {
   type: ChromecastEventType;
