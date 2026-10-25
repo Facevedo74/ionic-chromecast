@@ -884,7 +884,7 @@ Listen to Chromecast events (Android only)
 
 #### PlaybackTransport
 
-<code>'google-cast' | 'dlna' | 'fire-tv' | (string &amp; {})</code>
+<code>'google-cast' | 'dlna' | 'fire-tv' | (string & {})</code>
 
 
 #### ChromecastEventType
