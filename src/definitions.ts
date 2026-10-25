@@ -21,7 +21,7 @@ export interface SessionStatusResult {
   deviceName?: string;
 }
 
-export type PlaybackTransport = 'google-cast' | 'dlna' | 'fire-tv';
+export type PlaybackTransport = 'google-cast' | 'dlna' | 'fire-tv' | (string & {});
 
 export interface DevicesAvailableResult {
   available: boolean;

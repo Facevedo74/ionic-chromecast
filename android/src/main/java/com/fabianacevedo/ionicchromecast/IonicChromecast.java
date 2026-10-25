@@ -10,7 +10,6 @@ import com.google.android.gms.cast.framework.SessionManager;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.List;
@@ -38,6 +37,7 @@ public class IonicChromecast {
     private MediaRouteSelector mediaRouteSelector;
     private DlnaManager dlnaManager;
     private FireTvManager fireTvManager;
+    private PlaybackTransportRegistry transportRegistry;
     private final Object discoveryLock = new Object();
     
     /**
@@ -55,6 +55,11 @@ public class IonicChromecast {
             }
             if (fireTvManager == null) {
                 fireTvManager = new FireTvManager(appContext);
+            }
+            if (transportRegistry == null) {
+                transportRegistry = new PlaybackTransportRegistry();
+                transportRegistry.register(new DlnaPlaybackTransport(dlnaManager));
+                transportRegistry.register(new FireTvPlaybackTransport(fireTvManager));
             }
             if (isInitialized) {
                 Logger.info(TAG, "Cast SDK already initialized");
@@ -149,8 +154,30 @@ public class IonicChromecast {
     }
 
     public String getLastDiscoveryReport() {
-        String dlna = dlnaManager != null ? dlnaManager.getLastDiscoveryReport() : "DLNA discovery is not initialized";
-        return dlna + "; " + getFireTvDiscoveryReport();
+        return transportRegistry != null ? transportRegistry.discoveryReport()
+            : "DLNA discovery is not initialized; Fire TV discovery is not initialized";
+    }
+
+    public List<PlaybackDevice> discoverPlaybackDevices(int timeoutMs) {
+        return transportRegistry != null ? transportRegistry.discover(timeoutMs)
+            : java.util.Collections.emptyList();
+    }
+
+    public void selectPlaybackDevice(PlaybackDevice device) {
+        if (transportRegistry == null) throw new IllegalStateException("Playback transports are not initialized");
+        transportRegistry.select(device);
+    }
+
+    public void clearPlaybackSessions() {
+        if (transportRegistry != null) transportRegistry.clearAll();
+    }
+
+    public boolean isNativePlaybackSessionActive() {
+        return transportRegistry != null && transportRegistry.hasSession();
+    }
+
+    public void closePlaybackTransports() {
+        if (transportRegistry != null) transportRegistry.close();
     }
 
     public List<FireTvManager.Device> discoverFireTvDevices(int timeoutMs) {
@@ -198,22 +225,21 @@ public class IonicChromecast {
     }
 
     public String getActiveTransport() {
-        if (isFireTvSessionActive()) return "fire-tv";
-        if (isDlnaSessionActive()) return "dlna";
+        PlaybackTransport active = transportRegistry != null ? transportRegistry.active() : null;
+        if (active != null) return active.id();
         return isCastSessionActive() ? "google-cast" : null;
     }
 
     public String getSelectedDeviceName() {
-        if (isFireTvSessionActive()) return fireTvManager.getSelectedDeviceName();
-        return dlnaManager != null ? dlnaManager.getSelectedDeviceName() : null;
+        PlaybackTransport active = transportRegistry != null ? transportRegistry.active() : null;
+        return active != null ? active.selectedDeviceName() : null;
     }
 
     /**
      * Verifica si hay sesión activa
      */
     public boolean isSessionActive() {
-        if (isFireTvSessionActive()) return true;
-        if (isDlnaSessionActive()) return true;
+        if (isNativePlaybackSessionActive()) return true;
         return isCastSessionActive();
     }
 
@@ -270,16 +296,12 @@ public class IonicChromecast {
      * Finaliza la sesión Cast actual, si existe
      */
     public boolean endSession() {
-        if (isFireTvSessionActive()) {
-            boolean stopped = fireTvManager.stopAndClear();
-            lastError = stopped ? null : fireTvManager.getLastError();
+        PlaybackTransport active = transportRegistry != null ? transportRegistry.active() : null;
+        if (active != null) {
+            boolean stopped = active.endSession();
+            lastError = stopped ? null : active.lastError();
+            if (stopped) Logger.info(TAG, active.id() + " session ended by request");
             return stopped;
-        }
-        if (isDlnaSessionActive()) {
-            dlnaManager.stopAndClear();
-            lastError = null;
-            Logger.info(TAG, "DLNA session ended by request");
-            return true;
         }
 
         if (!isInitialized || castContext == null) {
@@ -340,23 +362,12 @@ public class IonicChromecast {
             return false;
         }
 
-        FutureTask<List<FireTvManager.Device>> fireTvSearch = new FutureTask<>(
-            () -> discoverFireTvDevices(5000)
-        );
-        new Thread(fireTvSearch, "IonicChromecast-FireTV-Availability").start();
         boolean castAvailable = runDeviceScan();
-        List<DlnaManager.Device> dlnaDevices = discoverDlnaDevices(5000);
-        boolean dlnaAvailable = !dlnaDevices.isEmpty();
-        boolean fireTvAvailable = false;
-        try {
-            fireTvAvailable = !fireTvSearch.get(4, TimeUnit.SECONDS).isEmpty();
-        } catch (Exception e) {
-            Logger.warn(TAG, "Fire TV availability check failed: " + e.getMessage());
-        }
+        boolean nativeAvailable = !discoverPlaybackDevices(5000).isEmpty();
         Logger.info(TAG, "areDevicesAvailable: googleCastFound=" + castAvailable
-            + ", dlnaFound=" + dlnaAvailable + ", fireTvFound=" + fireTvAvailable
+            + ", nativePlaybackFound=" + nativeAvailable
             + "; " + getLastDiscoveryReport());
-        return castAvailable || dlnaAvailable || fireTvAvailable;
+        return castAvailable || nativeAvailable;
     }
 
     /**
@@ -462,14 +473,10 @@ public class IonicChromecast {
     }
 
     public boolean loadMedia(String url, String title, String subtitle, String imageUrl, String contentType, double duration) {
-        if (isFireTvSessionActive()) {
-            boolean success = fireTvManager.loadMedia(url, title, subtitle, imageUrl, contentType);
-            lastError = success ? null : fireTvManager.getLastError();
-            return success;
-        }
-        if (isDlnaSessionActive()) {
-            boolean success = dlnaManager.loadMedia(url, title, subtitle, imageUrl, contentType, duration);
-            lastError = success ? null : dlnaManager.getLastError();
+        PlaybackTransport active = transportRegistry != null ? transportRegistry.active() : null;
+        if (active != null) {
+            boolean success = active.loadMedia(url, title, subtitle, imageUrl, contentType, duration);
+            lastError = success ? null : active.lastError();
             return success;
         }
 

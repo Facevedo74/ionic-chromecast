@@ -71,7 +71,7 @@ npx cap sync android
 - If no DLNA television or Fire TV is found, the native Google Cast chooser opens directly as before.
 - If another device is found, the plugin displays a chooser containing **Chromecast / Android TV (Google Cast)**, compatible **DLNA / UPnP** televisions, and discovered **Amazon Fire TV** devices.
 - Selecting a DLNA television marks the playback session as active. The existing `loadMedia()` call then sends `SetAVTransportURI` followed by `Play` through UPnP AVTransport.
-- Selecting a Fire TV uses its built-in receiver (`amzn.thin.pl`). `loadMedia()` sends the public media URL and metadata through Amazon Fling; sending another video reuses the selected device.
+- Selecting a Fire TV uses its built-in receiver (`amzn.thin.pl`). `loadMedia()` sends the media URL and metadata through Amazon Fling; sending another video reuses the selected device.
 - `requestCastSession()` bypasses DLNA and Fire TV discovery and opens the original Google Cast chooser immediately.
 - The `deviceChooserShown` listener event fires when either native device picker becomes visible, allowing apps to dismiss loading indicators without blocking the chooser.
 
@@ -107,7 +107,17 @@ await IonicChromecast.loadMedia({
 
 > DLNA sends public media URLs directly to the television except for HTTPS MP4 on Samsung and HLS streams, which are relayed over the local network. The HLS relay supports complete, unencrypted VOD playlists with same-origin MPEG-TS (`.ts`) segments, including master playlists (the highest-bandwidth variant is selected) and discontinuities. Live playlists, encryption, separate audio renditions, byte-range segments, and initialization maps are not supported. Actual codec/container support depends on the television's media renderer.
 
-> Fire TV receives the original URL directly through its built-in receiver. The DLNA relay is not used for Fire TV. Its codec, container, and HLS behavior must be checked on the device. Amazon ended standard support for the [Fling SDK](https://www.developer.amazon.com/docs/fling/working-with-built-in-receiver-on-fire-tv.html) in March 2026; this integration uses the archived SDK 1.6.3 and has not yet been validated on a Fire TV. The bundled Amazon libraries retain their [license](android/libs/AMAZON_FLING_LICENSE.txt) and [notices](android/libs/AMAZON_FLING_NOTICES.txt).
+> Fire TV normally receives the original URL. If an HLS origin serves playlists with a generic binary content type, Android starts a Fire TV-only local relay that supplies HLS content types. The DLNA relay is separate. Manual testing on one Fire TV Stick confirmed public MP4 and HLS playback, including an R2 HLS stream; other models still require device testing. Amazon ended standard support for the [Fling SDK](https://www.developer.amazon.com/docs/fling/working-with-built-in-receiver-on-fire-tv.html) in March 2026; this integration uses the archived SDK 1.6.3. The bundled Amazon libraries retain their [license](android/libs/AMAZON_FLING_LICENSE.txt) and [notices](android/libs/AMAZON_FLING_NOTICES.txt).
+
+### Adding another Android playback protocol
+
+The shared chooser and session flow use `PlaybackTransportRegistry`. Google Cast keeps its native SDK chooser. To add a protocol such as Roku:
+
+1. Implement `PlaybackTransport` in an Android adapter. Its `discover()` method returns `PlaybackDevice` entries wrapping protocol-specific handles.
+2. Register the adapter once in `IonicChromecast.initialize()`, after the existing DLNA and Fire TV adapters.
+3. Keep protocol-specific discovery, media loading, error reporting, and cleanup inside that adapter and its manager. The shared chooser, `loadMedia()`, `endSession()`, and availability check dispatch through the registry.
+
+Transport IDs are strings in the JavaScript result. `PlaybackTransport` in TypeScript keeps autocomplete for the current IDs while allowing a future registered ID.
 
 ### Test the example app
 
@@ -870,7 +880,7 @@ Listen to Chromecast events (Android only)
 
 #### PlaybackTransport
 
-<code>'google-cast' | 'dlna' | 'fire-tv'</code>
+<code>'google-cast' | 'dlna' | 'fire-tv' | (string &amp; {})</code>
 
 
 #### ChromecastEventType

@@ -20,9 +20,6 @@ import androidx.mediarouter.media.MediaRouteSelector;
 import androidx.mediarouter.media.MediaRouter;
 import android.content.DialogInterface;
 import java.util.List;
-import java.util.Collections;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.TimeUnit;
 
 @CapacitorPlugin(name = "IonicChromecast")
 public class IonicChromecastPlugin extends Plugin {
@@ -74,8 +71,7 @@ public class IonicChromecastPlugin extends Plugin {
                     }
 
                     @Override public void onSessionStarted(CastSession session, String sessionId) {
-                        implementation.clearDlnaSession();
-                        implementation.clearFireTvSession();
+                        implementation.clearPlaybackSessions();
                         JSObject data = new JSObject();
                         data.put("state", "started");
                         data.put("sessionId", sessionId);
@@ -118,7 +114,7 @@ public class IonicChromecastPlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         super.handleOnDestroy();
-        implementation.closeFireTvDiscovery();
+        implementation.closePlaybackTransports();
         try {
             SessionManager sm = implementation.getCastContext() != null ? implementation.getCastContext().getSessionManager() : null;
             if (sm != null && sessionListener != null) {
@@ -127,28 +123,14 @@ public class IonicChromecastPlugin extends Plugin {
         } catch (Exception ignored) {}
     }
 
-    /**
-     * Discovers DLNA/UPnP renderers while preserving the original Google Cast chooser.
-     * When no DLNA renderer is found, Google Cast opens directly as before.
-     */
+    /** Discovers registered native transports while preserving the Google Cast chooser. */
     @PluginMethod
     public void requestSession(PluginCall call) {
         if (!isReady(call)) return;
 
         new Thread(() -> {
             try {
-                FutureTask<List<FireTvManager.Device>> fireTvSearch = new FutureTask<>(
-                    () -> implementation.discoverFireTvDevices(5000)
-                );
-                new Thread(fireTvSearch, "IonicChromecast-FireTV-Discovery").start();
-                List<DlnaManager.Device> dlnaDevices = implementation.discoverDlnaDevices(5000);
-                List<FireTvManager.Device> fireTvDevices;
-                try {
-                    fireTvDevices = fireTvSearch.get(4, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    fireTvDevices = Collections.emptyList();
-                }
-                final List<FireTvManager.Device> devicesForChooser = fireTvDevices;
+                List<PlaybackDevice> devices = implementation.discoverPlaybackDevices(5000);
                 Activity activity = getActivity();
                 if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
                     call.reject("Activity is not available");
@@ -161,12 +143,12 @@ public class IonicChromecastPlugin extends Plugin {
                         call.reject("Activity is not available");
                         return;
                     }
-                    showPlaybackChooser(call, dlnaDevices, devicesForChooser, discoveryReport);
+                    showPlaybackChooser(call, devices, discoveryReport);
                 });
             } catch (Exception e) {
                 call.reject("Failed to discover playback devices: " + e.getMessage());
             }
-        }, "IonicChromecast-DLNA-Discovery").start();
+        }, "IonicChromecast-Playback-Discovery").start();
     }
 
     /**
@@ -209,23 +191,19 @@ public class IonicChromecastPlugin extends Plugin {
 
     private void showPlaybackChooser(
         PluginCall call,
-        List<DlnaManager.Device> dlnaDevices,
-        List<FireTvManager.Device> fireTvDevices,
+        List<PlaybackDevice> devices,
         String discoveryReport
     ) {
-        if (dlnaDevices.isEmpty() && fireTvDevices.isEmpty()) {
+        if (devices.isEmpty()) {
             showGoogleCastChooser(call, discoveryReport);
             return;
         }
 
         try {
-            String[] choices = new String[dlnaDevices.size() + fireTvDevices.size() + 1];
+            String[] choices = new String[devices.size() + 1];
             choices[0] = "Chromecast / Android TV (Google Cast)";
-            for (int i = 0; i < dlnaDevices.size(); i++) {
-                choices[i + 1] = dlnaDevices.get(i).getName() + " (DLNA / UPnP)";
-            }
-            for (int i = 0; i < fireTvDevices.size(); i++) {
-                choices[i + dlnaDevices.size() + 1] = fireTvDevices.get(i).getName() + " (Amazon Fire TV)";
+            for (int i = 0; i < devices.size(); i++) {
+                choices[i + 1] = devices.get(i).displayName();
             }
 
             AlertDialog dialog = new AlertDialog.Builder((AppCompatActivity) getActivity())
@@ -237,41 +215,23 @@ public class IonicChromecastPlugin extends Plugin {
                     }
 
                     try {
-                        if (which > dlnaDevices.size()) {
-                            FireTvManager.Device selectedFireTv = fireTvDevices.get(which - dlnaDevices.size() - 1);
-                            implementation.clearDlnaSession();
-                            implementation.selectFireTvDevice(selectedFireTv);
-                            JSObject event = new JSObject();
-                            event.put("state", "started");
-                            event.put("transport", "fire-tv");
-                            event.put("deviceName", selectedFireTv.getName());
-                            notifyListeners("sessionStarted", event);
-                            JSObject ret = new JSObject();
-                            ret.put("success", true);
-                            ret.put("message", "Fire TV selected");
-                            ret.put("transport", "fire-tv");
-                            ret.put("deviceName", selectedFireTv.getName());
-                            call.resolve(ret);
-                            return;
-                        }
-                        DlnaManager.Device selected = dlnaDevices.get(which - 1);
-                        implementation.clearFireTvSession();
-                        implementation.selectDlnaDevice(selected);
+                        PlaybackDevice selected = devices.get(which - 1);
+                        implementation.selectPlaybackDevice(selected);
 
                         JSObject event = new JSObject();
                         event.put("state", "started");
-                        event.put("transport", "dlna");
-                        event.put("deviceName", selected.getName());
+                        event.put("transport", selected.transportId());
+                        event.put("deviceName", selected.name);
                         notifyListeners("sessionStarted", event);
 
                         JSObject ret = new JSObject();
                         ret.put("success", true);
-                        ret.put("message", "DLNA renderer selected");
-                        ret.put("transport", "dlna");
-                        ret.put("deviceName", selected.getName());
+                        ret.put("message", selected.transport.selectionMessage());
+                        ret.put("transport", selected.transportId());
+                        ret.put("deviceName", selected.name);
                         call.resolve(ret);
                     } catch (Exception e) {
-                        call.reject("Failed to select DLNA renderer: " + e.getMessage());
+                        call.reject("Failed to select playback device: " + e.getMessage());
                     }
                 })
                 .setOnCancelListener(cancelledDialog -> {
@@ -299,8 +259,7 @@ public class IonicChromecastPlugin extends Plugin {
 
     private void showGoogleCastChooser(PluginCall call, String discoveryReport) {
         try {
-            implementation.clearDlnaSession();
-            implementation.clearFireTvSession();
+            implementation.clearPlaybackSessions();
 
             try {
                 SessionManager sm = implementation.getCastContext().getSessionManager();
@@ -399,10 +358,10 @@ public class IonicChromecastPlugin extends Plugin {
         }
 
         final String finalImageUrl = imageUrl;
-        if (implementation.isDlnaSessionActive() || implementation.isFireTvSessionActive()) {
+        if (implementation.isNativePlaybackSessionActive()) {
             new Thread(
                 () -> resolveLoadMedia(call, url, title, subtitle, finalImageUrl, contentType, duration),
-                "IonicChromecast-DLNA-Load"
+                "IonicChromecast-Playback-Load"
             ).start();
             return;
         }
@@ -441,7 +400,7 @@ public class IonicChromecastPlugin extends Plugin {
             if (ok) {
                 call.resolve(ret);
             } else {
-                String message = ("dlna".equals(transport) || "fire-tv".equals(transport)) && err != null && !err.isEmpty()
+                String message = transport != null && !"google-cast".equals(transport) && err != null && !err.isEmpty()
                     ? "Failed to load media: " + err
                     : "Failed to load media";
                 call.reject(message, ret);
@@ -456,8 +415,8 @@ public class IonicChromecastPlugin extends Plugin {
      */
     @PluginMethod
     public void endSession(PluginCall call) {
-        if (implementation.isDlnaSessionActive() || implementation.isFireTvSessionActive()) {
-            new Thread(() -> resolveEndSession(call), "IonicChromecast-DLNA-End").start();
+        if (implementation.isNativePlaybackSessionActive()) {
+            new Thread(() -> resolveEndSession(call), "IonicChromecast-Playback-End").start();
             return;
         }
         resolveEndSession(call);
