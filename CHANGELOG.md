@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.19] - 2026-10-25
+
+### Changed
+- Restore sequential HLS delivery without duration hints for Samsung DLNA renderers; this path was confirmed to play on a Samsung BU8000.
+- Require Samsung MP4 playback confirmation from both the receiver state and relay media bytes, and report relay origin details when loading fails.
+- Use the supplied AnimeSlime MP4 URL for the example's long-video test without a hardcoded duration. Playback of this new test URL still requires device validation.
+
 ## [0.0.18] - 2026-10-24
 
 ### Documentation

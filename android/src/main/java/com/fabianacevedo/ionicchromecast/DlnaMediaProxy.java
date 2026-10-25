@@ -49,6 +49,8 @@ final class DlnaMediaProxy {
     private final AtomicInteger completedGets = new AtomicInteger();
     private final AtomicInteger failedRequests = new AtomicInteger();
     private final AtomicLong bytesSent = new AtomicLong();
+    private volatile long mp4OriginLength = -1;
+    private volatile String mp4OriginResponse = "none";
     private volatile String lastRequestResult = "none";
     private volatile String lastRequestHeaders = "none";
     private volatile String hlsOriginDebug = "none";
@@ -77,6 +79,18 @@ final class DlnaMediaProxy {
         boolean hlsTransportStream,
         double durationSeconds
     ) throws IOException {
+        this(wifiNetwork, listenAddress, rendererAddress, sourceUrl, hlsTransportStream, durationSeconds, true);
+    }
+
+    DlnaMediaProxy(
+        Network wifiNetwork,
+        InetAddress listenAddress,
+        InetAddress rendererAddress,
+        String sourceUrl,
+        boolean hlsTransportStream,
+        double durationSeconds,
+        boolean indexHlsSegments
+    ) throws IOException {
         this.wifiNetwork = wifiNetwork;
         this.rendererAddress = rendererAddress;
         source = new URL(sourceUrl);
@@ -86,7 +100,7 @@ final class DlnaMediaProxy {
         this.hlsTransportStream = hlsTransportStream;
         this.durationSeconds = Double.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 0;
         hlsSegments = hlsTransportStream ? readHlsSegments() : null;
-        hlsSegmentOffsets = hlsTransportStream ? indexHlsSegments() : null;
+        hlsSegmentOffsets = hlsTransportStream && indexHlsSegments ? indexHlsSegments() : null;
         path = "/ionic-chromecast/" + UUID.randomUUID().toString()
             + (hlsTransportStream ? "/video.mpg" : "/video.mp4");
         server = new ServerSocket(0, 16, listenAddress);
@@ -110,8 +124,19 @@ final class DlnaMediaProxy {
     String getDiagnostic() {
         return "requests=" + requests.get() + ", GETs=" + getRequests.get()
             + ", complete=" + completedGets.get() + ", failed=" + failedRequests.get()
-            + ", bytes=" + bytesSent.get() + ", length=" + getHlsContentLength() + ", last=" + lastRequestResult
-            + (hlsTransportStream ? ", request=" + lastRequestHeaders + ", origin=" + hlsOriginDebug : "");
+            + ", bytes=" + bytesSent.get() + ", length="
+            + (hlsTransportStream ? getHlsContentLength() : mp4OriginLength)
+            + ", last=" + lastRequestResult
+            + ", request=" + lastRequestHeaders
+            + ", origin=" + (hlsTransportStream ? hlsOriginDebug : mp4OriginResponse);
+    }
+
+    boolean hasRequestedMedia() {
+        return getRequests.get() > 0;
+    }
+
+    boolean hasSentMedia() {
+        return bytesSent.get() > 0;
     }
 
     boolean hasCompletedGet() {
@@ -179,6 +204,7 @@ final class DlnaMediaProxy {
                 }
             }
             lastRequestHeaders = method + " range=" + range + " agent=" + userAgent;
+            lastRequestResult = method + " headers parsed";
 
             if (hlsTransportStream) {
                 serveHls(method, range, output);
@@ -197,6 +223,7 @@ final class DlnaMediaProxy {
                 upstream.setRequestProperty("Accept-Encoding", "identity");
                 if (range != null) upstream.setRequestProperty("Range", range);
 
+                lastRequestResult = method + " opening origin";
                 int status = upstream.getResponseCode();
                 lastRequestResult = method + " origin HTTP " + status;
                 if (status != 200 && status != 206) {
@@ -206,11 +233,14 @@ final class DlnaMediaProxy {
                 }
                 String type = upstream.getContentType();
                 if (type == null || type.isEmpty()) type = "video/mp4";
+                mp4OriginLength = upstream.getContentLengthLong();
+                mp4OriginResponse = "HTTP " + status + " type=" + type
+                    + " length=" + mp4OriginLength;
                 StringBuilder headers = new StringBuilder("HTTP/1.1 ")
                     .append(status).append(status == 206 ? " Partial Content" : " OK")
                     .append("\r\nContent-Type: ").append(type)
                     .append("\r\nAccept-Ranges: bytes\r\nConnection: close\r\n");
-                long length = upstream.getContentLengthLong();
+                long length = mp4OriginLength;
                 if (length >= 0) headers.append("Content-Length: ").append(length).append("\r\n");
                 String contentRange = upstream.getHeaderField("Content-Range");
                 if (contentRange != null) headers.append("Content-Range: ").append(contentRange).append("\r\n");

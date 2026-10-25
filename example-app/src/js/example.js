@@ -248,21 +248,23 @@ window.playVideo = async (format = 'mp4') => {
         const videoUrl = isHls
             ? document.getElementById('hlsUrl').value.trim()
             : isLongMp4
-                ? 'https://dn721902.ca.archive.org/0/items/youtube-aqz-KE-bpKQ/aqz-KE-bpKQ.mp4'
+                ? 'https://animeslime.online/api/video?path=bf1987237536f0fb6dc3f2cf58db87b709088224dc4953f73df65916f32350c5894bf7749d55c60b9a389f7159c74d636a2df1a19ad37ddb46bf69dedba64e2e9c7c0ab5a19c67102bafdd502c8bab7b'
                 : 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
         const contentType = isHls ? 'application/x-mpegurl' : 'video/mp4';
-        const duration = isHls ? Number(document.getElementById('hlsDuration').value) : isLongMp4 ? 581.248 : 5;
-        if (!Number.isFinite(duration) || duration <= 0) throw new Error('La duración debe ser mayor que cero.');
-        appendLog(`STEP 4: loadMedia url=${videoUrl} ct=${contentType} durationSeconds=${duration} receiver=${DEFAULT_RECEIVER_ID}`);
+        const duration = isHls ? Number(document.getElementById('hlsDuration').value) : isLongMp4 ? null : 5;
+        if (isHls && (!Number.isFinite(duration) || duration <= 0)) throw new Error('La duración debe ser mayor que cero.');
+        appendLog(`STEP 4: loadMedia url=${videoUrl} ct=${contentType} durationSeconds=${duration ?? 'unknown'} receiver=${DEFAULT_RECEIVER_ID}`);
+
+        const metadata = {
+            title: isHls ? 'HLS duration test' : isLongMp4 ? 'AnimeSlime long MP4 test' : 'Flower',
+            subtitle: isHls ? 'HLS test' : isLongMp4 ? 'Long MP4 seek test' : 'MDN sample video',
+            contentType
+        };
+        if (duration != null) metadata.duration = duration;
 
         const result = await IonicChromecast.loadMedia({
             url: videoUrl,
-            metadata: {
-                title: isHls ? 'HLS duration test' : isLongMp4 ? 'W3C WAI-Tools Overview' : 'Flower',
-                subtitle: isHls ? 'HLS test' : isLongMp4 ? 'Long MP4 seek test' : 'MDN sample video',
-                contentType,
-                duration
-            }
+            metadata
         });
         
         appendLog('STEP 4: loadMedia result => ' + JSON.stringify(result || {}));

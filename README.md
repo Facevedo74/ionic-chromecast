@@ -125,10 +125,10 @@ Transport IDs are strings in the JavaScript result. `PlaybackTransport` in TypeS
 
 ### Test the example app
 
-From the repository root, run `npm run android:run` to build, sync, and launch the Android example app. **Play Long MP4 Test** loads the public MP4 below, which is also useful for testing seeking:
+From the repository root, run `npm run android:run` to build, sync, and launch the Android example app. **Play Long MP4 Test** uses this MP4 URL. Its duration is not hardcoded; the receiver reads it from the media:
 
 ```text
-https://dn721902.ca.archive.org/0/items/youtube-aqz-KE-bpKQ/aqz-KE-bpKQ.mp4
+https://animeslime.online/api/video?path=bf1987237536f0fb6dc3f2cf58db87b709088224dc4953f73df65916f32350c5894bf7749d55c60b9a389f7159c74d636a2df1a19ad37ddb46bf69dedba64e2e9c7c0ab5a19c67102bafdd502c8bab7b
 ```
 
 The example app is maintained in `example-app/` and is not included in the published npm package.

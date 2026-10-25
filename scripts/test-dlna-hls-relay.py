@@ -63,6 +63,13 @@ public class RelayProbe {
           check(get(url,"bytes=0-1,4-8","GET").statusCode()==416,mode+" multiple ranges rejected");
         }
       }
+      try(var relay=new RelayClose(new DlnaMediaProxy(null,InetAddress.getByName("127.0.0.1"),InetAddress.getByName("127.0.0.1"),"http://127.0.0.1:"+origin.getAddress().getPort()+"/normal/index.m3u8",true,0,false))){
+        check(!relay.proxy.supportsByteSeeking(),"Samsung HLS uses sequential relay");
+        var full=get(relay.proxy.getMediaUrl(),null,"GET");
+        check(full.statusCode()==200&&Arrays.equals(full.body(),all),"Samsung HLS full content exact");
+        check(full.headers().firstValue("Transfer-Encoding").orElse("").equalsIgnoreCase("chunked"),"Samsung HLS uses chunked transfer");
+        check(full.headers().firstValue("Content-Duration").isEmpty(),"Samsung HLS omits duration hint");
+      }
       System.out.println("SUCCESS "+checks+" relay checks");
     }finally{origin.stop(0);executor.shutdownNow();}
   }

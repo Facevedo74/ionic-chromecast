@@ -1,6 +1,6 @@
 {
   "name": "ionic-chromecast",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "description": "Capacitor plugin for Google Cast, DLNA/UPnP, and Amazon Fire TV playback on Android",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",

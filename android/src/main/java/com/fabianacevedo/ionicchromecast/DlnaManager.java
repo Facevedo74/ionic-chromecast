@@ -664,11 +664,12 @@ public class DlnaManager {
         String playbackUrl = url;
         boolean hlsRelay = url.toLowerCase(Locale.US).contains(".m3u8")
             || mimeType.toLowerCase(Locale.US).contains("mpegurl");
+        double relayDuration = device.isSamsung() && hlsRelay ? 0 : duration;
         closeMediaProxy();
         if (hlsRelay || (device.isSamsung() && url.toLowerCase(Locale.US).startsWith("https://")
             && mimeType.toLowerCase(Locale.US).startsWith("video/mp4"))) {
             try {
-                mediaProxy = startMediaProxy(device, url, hlsRelay, duration);
+                mediaProxy = startMediaProxy(device, url, hlsRelay, relayDuration);
                 playbackUrl = mediaProxy.getMediaUrl();
                 metadata = buildDidlMetadata(
                     playbackUrl,
@@ -677,7 +678,7 @@ public class DlnaManager {
                     imageUrl,
                     hlsRelay ? "video/mpeg" : mimeType,
                     hlsRelay && !mediaProxy.supportsByteSeeking(),
-                    duration,
+                    relayDuration,
                     mediaProxy.getHlsContentLength()
                 );
                 Logger.info(TAG, hlsRelay
@@ -736,6 +737,14 @@ public class DlnaManager {
             "Play",
             "<InstanceID>0</InstanceID><Speed>1</Speed>"
         );
+        boolean samsungMp4Verified = false;
+        if (!played && device.isSamsung() && !hlsRelay && lastError != null
+            && lastError.contains("Read timed out") && mediaProxy != null
+            && mediaProxy.hasRequestedMedia()) {
+            Logger.warn(TAG, "Samsung requested MP4 while Play timed out; checking receiver state before closing relay");
+            played = waitForSamsungPlayback(device, 12000, true);
+            samsungMp4Verified = played;
+        }
         if (!played && device.isSamsung() && lastError != null
             && lastError.contains("<errorCode>705</errorCode>")) {
             String playError = lastError;
@@ -758,6 +767,9 @@ public class DlnaManager {
         }
         if (played && hlsRelay) {
             played = waitForSamsungPlayback(device, 12000);
+        }
+        if (played && device.isSamsung() && !hlsRelay && !samsungMp4Verified) {
+            played = waitForSamsungPlayback(device, 12000, true);
         }
         if (played) {
             lastError = null;
@@ -783,8 +795,13 @@ public class DlnaManager {
     }
 
     private boolean waitForSamsungPlayback(Device device, int timeoutMs) {
+        return waitForSamsungPlayback(device, timeoutMs, false);
+    }
+
+    private boolean waitForSamsungPlayback(Device device, int timeoutMs, boolean requireMediaBytes) {
         long deadline = System.currentTimeMillis() + timeoutMs;
         String lastObservedState = "unavailable";
+        long playingWithMediaSince = 0;
         while (System.currentTimeMillis() < deadline) {
             Document transport = querySoapDocument(device, "GetTransportInfo");
             if (transport != null) {
@@ -792,8 +809,20 @@ public class DlnaManager {
                 String status = firstElementText(transport, "CurrentTransportStatus");
                 lastObservedState = state + "/" + status;
                 if ("PLAYING".equals(state)) {
-                    Logger.info(TAG, "Samsung reports PLAYING after AVTransport Play response");
-                    return true;
+                    DlnaMediaProxy proxy = mediaProxy;
+                    if (!requireMediaBytes) {
+                        Logger.info(TAG, "Samsung reports PLAYING after AVTransport Play response");
+                        return true;
+                    }
+                    if (proxy != null && proxy.hasSentMedia()) {
+                        if (playingWithMediaSince == 0) playingWithMediaSince = System.currentTimeMillis();
+                        if (System.currentTimeMillis() - playingWithMediaSince >= 2000) {
+                            Logger.info(TAG, "Samsung reports PLAYING after receiving MP4 bytes");
+                            return true;
+                        }
+                    }
+                } else {
+                    playingWithMediaSince = 0;
                 }
                 if ("STOPPED".equals(state)) {
                     Document stopped = querySoapDocument(device, "X_GetStoppedReason");
@@ -875,7 +904,12 @@ public class DlnaManager {
             for (LinkAddress address : properties.getLinkAddresses()) {
                 if (address.getAddress() instanceof Inet4Address && !address.getAddress().isLoopbackAddress()) {
                     InetAddress renderer = InetAddress.getByName(new URL(device.controlUrl).getHost());
-                    return new DlnaMediaProxy(wifi, address.getAddress(), renderer, url, hlsTransportStream, duration);
+                    // Samsung repeatedly closes ranged MPEG-TS requests while still TRANSITIONING.
+                    // Keep its HLS delivery sequential; other renderers retain byte seeking.
+                    return new DlnaMediaProxy(
+                        wifi, address.getAddress(), renderer, url, hlsTransportStream, duration,
+                        !device.isSamsung()
+                    );
                 }
             }
         }
