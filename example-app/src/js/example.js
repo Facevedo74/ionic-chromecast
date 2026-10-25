@@ -278,10 +278,13 @@ window.playVideo = async (format = 'mp4') => {
         }
         
     } catch (e) {
-        playEl.textContent = '⚠️ Could not load video: ' + (e?.message || e);
+        const message = e?.message || String(e);
+        playEl.textContent = message.includes('Fire TV media load failed: Cannot set Url on media device')
+            ? '⚠️ Fire TV did not confirm playback. Check the TV: ' + message
+            : '⚠️ Could not load video: ' + message;
         playEl.style.color = 'orange';
         console.error('playVideo error', e);
-        appendLog('❌ EXCEPTION: ' + (e?.message || e));
+        appendLog('❌ EXCEPTION: ' + message);
         try {
             const current = await IonicChromecast.isSessionActive();
             sessionEl.textContent = current.active
