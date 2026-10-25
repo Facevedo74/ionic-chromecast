@@ -19,6 +19,11 @@ const queryReceiverId = new URLSearchParams(window.location.search).get('receive
 const DEFAULT_RECEIVER_ID = queryReceiverId || DEFAULT_MEDIA_RECEIVER_ID;
 let sessionActionInProgress = false;
 
+function sessionDeviceName(session) {
+    return session?.deviceName || (session?.transport === 'fire-tv'
+        ? 'Fire TV' : session?.transport === 'dlna' ? 'DLNA TV' : 'Chromecast');
+}
+
 // Initialize Cast SDK when app loads
 window.addEventListener('DOMContentLoaded', async () => {
     console.log('Initializing Chromecast...');
@@ -63,7 +68,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         appendLog('event: sessionStarted ' + JSON.stringify(e || {}));
         const sessionEl = document.getElementById('sessionStatus');
         if (sessionEl) {
-          sessionEl.textContent = `✅ Connected to ${e?.deviceName || (e?.transport === 'dlna' ? 'DLNA TV' : 'Chromecast')}`;
+          sessionEl.textContent = `✅ Connected to ${sessionDeviceName(e)}`;
           sessionEl.style.color = 'green';
         }
       });
@@ -118,7 +123,7 @@ window.checkDevices = async () => {
             devicesStatusEl.textContent = '📡 Devices available';
             devicesStatusEl.style.color = 'green';
         } else {
-            devicesStatusEl.textContent = '❌ No Cast/DLNA devices found' + (message ? ` — ${message}` : '');
+            devicesStatusEl.textContent = '❌ No Cast/DLNA/Fire TV devices found' + (message ? ` — ${message}` : '');
             devicesStatusEl.style.color = 'red';
         }
         if (message) console.log(message);
@@ -146,8 +151,8 @@ window.startCasting = async () => {
         appendLog('requestSession (test only) => ' + JSON.stringify(result || {}));
         if (result?.dlnaDiscovery) appendLog('DLNA discovery => ' + result.dlnaDiscovery);
         if (result.success) {
-            sessionEl.textContent = result.transport === 'dlna'
-                ? `✅ Connected to ${result.deviceName || 'DLNA TV'}`
+            sessionEl.textContent = result.transport === 'dlna' || result.transport === 'fire-tv'
+                ? `✅ Connected to ${sessionDeviceName(result)}`
                 : `✅ Cast chooser displayed${result.dlnaDiscovery ? `; ${result.dlnaDiscovery}` : ''}`;
             sessionEl.style.color = 'green';
         } else {
@@ -221,7 +226,7 @@ window.playVideo = async (format = 'mp4') => {
             }
 
             const selectedSession = await IonicChromecast.isSessionActive();
-            sessionEl.textContent = `✅ Connected to ${selectedSession.deviceName || (selectedSession.transport === 'dlna' ? 'DLNA TV' : 'Chromecast')}`;
+            sessionEl.textContent = `✅ Connected to ${sessionDeviceName(selectedSession)}`;
             sessionEl.style.color = 'green';
             appendLog('STEP 3: Session connected successfully');
             
@@ -230,7 +235,7 @@ window.playVideo = async (format = 'mp4') => {
             await new Promise(r => setTimeout(r, 2000));
         } else {
             appendLog('STEP 1: Reusing the active session; no disconnect or device chooser');
-            sessionEl.textContent = `✅ Connected to ${initialSession.deviceName || (initialSession.transport === 'dlna' ? 'DLNA TV' : 'Chromecast')}`;
+            sessionEl.textContent = `✅ Connected to ${sessionDeviceName(initialSession)}`;
             sessionEl.style.color = 'green';
         }
 
@@ -280,7 +285,7 @@ window.playVideo = async (format = 'mp4') => {
         try {
             const current = await IonicChromecast.isSessionActive();
             sessionEl.textContent = current.active
-                ? `✅ Session retained on ${current.deviceName || (current.transport === 'dlna' ? 'DLNA TV' : 'Chromecast')}`
+                ? `✅ Session retained on ${sessionDeviceName(current)}`
                 : '❌ No active session; select a device to retry';
             sessionEl.style.color = current.active ? 'green' : 'red';
         } catch (statusError) {

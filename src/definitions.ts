@@ -21,7 +21,7 @@ export interface SessionStatusResult {
   deviceName?: string;
 }
 
-export type PlaybackTransport = 'google-cast' | 'dlna';
+export type PlaybackTransport = 'google-cast' | 'dlna' | 'fire-tv';
 
 export interface DevicesAvailableResult {
   available: boolean;
@@ -93,8 +93,8 @@ export interface IonicChromecastPlugin {
   echo(options: { value: string }): Promise<{ value: string }>;
 
   /**
-   * Discover and select a Google Cast or DLNA/UPnP playback device (Android only).
-   * Falls back directly to the native Google Cast chooser when no DLNA renderer is found.
+   * Discover and select a Google Cast, DLNA/UPnP, or Amazon Fire TV device (Android only).
+   * Falls back directly to the native Google Cast chooser when no other device is found.
    */
   requestSession(): Promise<RequestSessionResult>;
 
@@ -104,7 +104,7 @@ export interface IonicChromecastPlugin {
   requestCastSession(): Promise<RequestSessionResult>;
 
   /**
-   * Check if there is an active Google Cast or selected DLNA session (Android only)
+   * Check if there is an active Google Cast, selected DLNA, or selected Fire TV session (Android only)
    */
   isSessionActive(): Promise<SessionStatusResult>;
 
@@ -116,17 +116,17 @@ export interface IonicChromecastPlugin {
   getDlnaDiagnostics(): Promise<DlnaPlaybackDiagnostics>;
 
   /**
-   * Check if there are available Google Cast or DLNA/UPnP devices (Android only)
+   * Check if there are available Google Cast, DLNA/UPnP, or Fire TV devices (Android only)
    */
   areDevicesAvailable(): Promise<DevicesAvailableResult>;
 
   /**
-   * Load public HTTP/HTTPS media on the selected Google Cast or DLNA device (Android only)
+   * Load public HTTP/HTTPS media on the selected device (Android only)
    */
   loadMedia(options: LoadMediaOptions): Promise<LoadMediaResult>;
 
   /**
-   * End the current Google Cast or DLNA session (Android only)
+   * End the current Google Cast, DLNA, or Fire TV session (Android only)
    */
   endSession(): Promise<{ success: boolean; message?: string }>;
 

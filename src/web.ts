@@ -24,7 +24,7 @@ export class IonicChromecastWeb extends WebPlugin implements IonicChromecastPlug
 
   async requestSession(): Promise<{ success: boolean; message?: string }> {
     console.warn('requestSession() is not supported on web.');
-    return { success: false, message: 'Google Cast and DLNA sessions are only available on Android.' };
+    return { success: false, message: 'Google Cast, DLNA, and Fire TV sessions are only available on Android.' };
   }
 
   async requestCastSession(): Promise<{ success: boolean; message?: string }> {
@@ -39,7 +39,7 @@ export class IonicChromecastWeb extends WebPlugin implements IonicChromecastPlug
 
   async areDevicesAvailable(): Promise<{ available: boolean; message?: string }> {
     console.warn('areDevicesAvailable() is not supported on web.');
-    return { available: false, message: 'Google Cast and DLNA device detection is only available on Android.' };
+    return { available: false, message: 'Google Cast, DLNA, and Fire TV device detection is only available on Android.' };
   }
 
   async getDlnaDiagnostics(): Promise<DlnaPlaybackDiagnostics> {

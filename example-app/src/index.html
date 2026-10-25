@@ -13,8 +13,7 @@
     <main>
       <h1>Ionic Chromecast Plugin Test</h1>
       <p>
-        This is a test application for the Ionic Chromecast plugin. 
-        It demonstrates the initialize() method for Google Cast SDK.
+        This is a test application for Google Cast, DLNA, and Amazon Fire TV playback.
       </p>
       
       <section style="margin: 20px 0; padding: 15px; border: 2px solid #ddd; border-radius: 8px;">
@@ -47,7 +46,7 @@
         <h2>🎮 Cast Controls</h2>
         <div>
           <button onclick="startCasting()" style="padding: 10px 20px; background: #7044ff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-            Start Casting
+            Select playback device
           </button>
           <span id="sessionStatus" style="margin-left: 10px; font-weight: 600;">—</span>
         </div>
@@ -59,7 +58,7 @@
         </div>
         <div style="margin-top: 12px;">
           <button onclick="stopCasting()" style="padding: 10px 20px; background: #222428; color: white; border: none; border-radius: 4px; cursor: pointer;">
-            Stop Cast Session
+            Stop Playback Session
           </button>
         </div>
         <div style="margin-top: 12px;">
@@ -74,7 +73,7 @@
           </button>
           <span id="playStatus" style="margin-left: 10px; font-weight: 600;">—</span>
         </div>
-        <p style="margin-top: 8px; color: #555;">While a video is playing, choose another Play button to send it to the same device without disconnecting. Use Start Casting to choose a different device.</p>
+        <p style="margin-top: 8px; color: #555;">While a video is playing, choose another Play button to send it to the same device without disconnecting. Use Select playback device to choose a different screen.</p>
         <div style="margin-top: 12px;">
           <button onclick="readDlnaDiagnostics()">Consultar duración reconocida por el TV</button>
           <pre id="dlnaDiagnostics" style="white-space: pre-wrap; overflow-wrap: anywhere;">—</pre>

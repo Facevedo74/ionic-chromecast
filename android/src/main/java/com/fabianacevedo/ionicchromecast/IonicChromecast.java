@@ -10,6 +10,7 @@ import com.google.android.gms.cast.framework.SessionManager;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.List;
@@ -36,6 +37,7 @@ public class IonicChromecast {
     private MediaRouter mediaRouter;
     private MediaRouteSelector mediaRouteSelector;
     private DlnaManager dlnaManager;
+    private FireTvManager fireTvManager;
     private final Object discoveryLock = new Object();
     
     /**
@@ -50,6 +52,9 @@ public class IonicChromecast {
             appContext = context.getApplicationContext();
             if (dlnaManager == null) {
                 dlnaManager = new DlnaManager(appContext);
+            }
+            if (fireTvManager == null) {
+                fireTvManager = new FireTvManager(appContext);
             }
             if (isInitialized) {
                 Logger.info(TAG, "Cast SDK already initialized");
@@ -144,7 +149,32 @@ public class IonicChromecast {
     }
 
     public String getLastDiscoveryReport() {
-        return dlnaManager != null ? dlnaManager.getLastDiscoveryReport() : "DLNA discovery is not initialized";
+        String dlna = dlnaManager != null ? dlnaManager.getLastDiscoveryReport() : "DLNA discovery is not initialized";
+        return dlna + "; " + getFireTvDiscoveryReport();
+    }
+
+    public List<FireTvManager.Device> discoverFireTvDevices(int timeoutMs) {
+        return fireTvManager != null ? fireTvManager.discover(timeoutMs) : java.util.Collections.emptyList();
+    }
+
+    public String getFireTvDiscoveryReport() {
+        return fireTvManager != null ? fireTvManager.getDiscoveryReport() : "Fire TV discovery is not initialized";
+    }
+
+    public void selectFireTvDevice(FireTvManager.Device device) {
+        if (fireTvManager != null) fireTvManager.selectDevice(device);
+    }
+
+    public void clearFireTvSession() {
+        if (fireTvManager != null) fireTvManager.clearSelectedDevice();
+    }
+
+    public boolean isFireTvSessionActive() {
+        return fireTvManager != null && fireTvManager.hasSelectedDevice();
+    }
+
+    public void closeFireTvDiscovery() {
+        if (fireTvManager != null) fireTvManager.close();
     }
 
     public java.util.Map<String, String> getDlnaPlaybackDiagnostics() {
@@ -168,11 +198,13 @@ public class IonicChromecast {
     }
 
     public String getActiveTransport() {
+        if (isFireTvSessionActive()) return "fire-tv";
         if (isDlnaSessionActive()) return "dlna";
         return isCastSessionActive() ? "google-cast" : null;
     }
 
     public String getSelectedDeviceName() {
+        if (isFireTvSessionActive()) return fireTvManager.getSelectedDeviceName();
         return dlnaManager != null ? dlnaManager.getSelectedDeviceName() : null;
     }
 
@@ -180,6 +212,7 @@ public class IonicChromecast {
      * Verifica si hay sesión activa
      */
     public boolean isSessionActive() {
+        if (isFireTvSessionActive()) return true;
         if (isDlnaSessionActive()) return true;
         return isCastSessionActive();
     }
@@ -237,6 +270,11 @@ public class IonicChromecast {
      * Finaliza la sesión Cast actual, si existe
      */
     public boolean endSession() {
+        if (isFireTvSessionActive()) {
+            boolean stopped = fireTvManager.stopAndClear();
+            lastError = stopped ? null : fireTvManager.getLastError();
+            return stopped;
+        }
         if (isDlnaSessionActive()) {
             dlnaManager.stopAndClear();
             lastError = null;
@@ -302,12 +340,23 @@ public class IonicChromecast {
             return false;
         }
 
+        FutureTask<List<FireTvManager.Device>> fireTvSearch = new FutureTask<>(
+            () -> discoverFireTvDevices(5000)
+        );
+        new Thread(fireTvSearch, "IonicChromecast-FireTV-Availability").start();
         boolean castAvailable = runDeviceScan();
         List<DlnaManager.Device> dlnaDevices = discoverDlnaDevices(5000);
         boolean dlnaAvailable = !dlnaDevices.isEmpty();
+        boolean fireTvAvailable = false;
+        try {
+            fireTvAvailable = !fireTvSearch.get(4, TimeUnit.SECONDS).isEmpty();
+        } catch (Exception e) {
+            Logger.warn(TAG, "Fire TV availability check failed: " + e.getMessage());
+        }
         Logger.info(TAG, "areDevicesAvailable: googleCastFound=" + castAvailable
-            + ", dlnaFound=" + dlnaAvailable + "; " + getLastDiscoveryReport());
-        return castAvailable || dlnaAvailable;
+            + ", dlnaFound=" + dlnaAvailable + ", fireTvFound=" + fireTvAvailable
+            + "; " + getLastDiscoveryReport());
+        return castAvailable || dlnaAvailable || fireTvAvailable;
     }
 
     /**
@@ -413,6 +462,11 @@ public class IonicChromecast {
     }
 
     public boolean loadMedia(String url, String title, String subtitle, String imageUrl, String contentType, double duration) {
+        if (isFireTvSessionActive()) {
+            boolean success = fireTvManager.loadMedia(url, title, subtitle, imageUrl, contentType);
+            lastError = success ? null : fireTvManager.getLastError();
+            return success;
+        }
         if (isDlnaSessionActive()) {
             boolean success = dlnaManager.loadMedia(url, title, subtitle, imageUrl, contentType, duration);
             lastError = success ? null : dlnaManager.getLastError();

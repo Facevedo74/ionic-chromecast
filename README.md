@@ -11,6 +11,7 @@ A Capacitor plugin for integrating Google Cast SDK (Chromecast) with Ionic/Capac
 - ✅ End active Cast session from app
 - ✅ DLNA/UPnP MediaRenderer discovery on the local network
 - ✅ Public MP4 and HLS playback through UPnP AVTransport
+- 🧪 Amazon Fire TV discovery and playback through its built-in Fling receiver (device validation pending)
 - ✅ Android support
 - ✅ Event listeners
 - 🚧 iOS support (coming soon)
@@ -61,18 +62,20 @@ npx cap sync android
 - Chromecast device on the same WiFi network
 - DLNA/UPnP televisions must expose a `MediaRenderer` with the `AVTransport` service
 - DLNA media URLs must be public HTTP/HTTPS URLs; authentication headers and DRM are not supported
+- Fire TV playback requires a Fire TV device with the built-in Amazon Fling receiver and a media URL reachable from that device
 
-## Google Cast and DLNA/UPnP
+## Google Cast, DLNA/UPnP, and Fire TV
 
-`requestSession()` preserves Google Cast support and also discovers DLNA/UPnP televisions:
+`requestSession()` preserves Google Cast and DLNA support and also discovers Fire TV devices through Amazon Fling:
 
-- If no DLNA television is found, the native Google Cast chooser opens directly as before.
-- If DLNA televisions are found, the plugin displays a device-type chooser containing **Chromecast / Android TV (Google Cast)** and every discovered **DLNA / UPnP** television.
+- If no DLNA television or Fire TV is found, the native Google Cast chooser opens directly as before.
+- If another device is found, the plugin displays a chooser containing **Chromecast / Android TV (Google Cast)**, compatible **DLNA / UPnP** televisions, and discovered **Amazon Fire TV** devices.
 - Selecting a DLNA television marks the playback session as active. The existing `loadMedia()` call then sends `SetAVTransportURI` followed by `Play` through UPnP AVTransport.
-- `requestCastSession()` is available when the application needs to bypass DLNA discovery and open the original Google Cast chooser immediately.
+- Selecting a Fire TV uses its built-in receiver (`amzn.thin.pl`). `loadMedia()` sends the public media URL and metadata through Amazon Fling; sending another video reuses the selected device.
+- `requestCastSession()` bypasses DLNA and Fire TV discovery and opens the original Google Cast chooser immediately.
 - The `deviceChooserShown` listener event fires when either native device picker becomes visible, allowing apps to dismiss loading indicators without blocking the chooser.
 
-The same application flow works for both transports:
+The same application flow works for all three transports:
 
 ```typescript
 const session = await IonicChromecast.requestSession();
@@ -103,6 +106,8 @@ await IonicChromecast.loadMedia({
 ```
 
 > DLNA sends public media URLs directly to the television except for HTTPS MP4 on Samsung and HLS streams, which are relayed over the local network. The HLS relay supports complete, unencrypted VOD playlists with same-origin MPEG-TS (`.ts`) segments, including master playlists (the highest-bandwidth variant is selected) and discontinuities. Live playlists, encryption, separate audio renditions, byte-range segments, and initialization maps are not supported. Actual codec/container support depends on the television's media renderer.
+
+> Fire TV receives the original URL directly through its built-in receiver. The DLNA relay is not used for Fire TV. Its codec, container, and HLS behavior must be checked on the device. Amazon ended standard support for the [Fling SDK](https://www.developer.amazon.com/docs/fling/working-with-built-in-receiver-on-fire-tv.html) in March 2026; this integration uses the archived SDK 1.6.3 and has not yet been validated on a Fire TV. The bundled Amazon libraries retain their [license](android/libs/AMAZON_FLING_LICENSE.txt) and [notices](android/libs/AMAZON_FLING_NOTICES.txt).
 
 ### Test the example app
 
@@ -650,8 +655,8 @@ echo(options: { value: string; }) => Promise<{ value: string; }>
 requestSession() => Promise<RequestSessionResult>
 ```
 
-Discover and select a Google Cast or DLNA/UPnP playback device (Android only).
-Falls back directly to the native Google Cast chooser when no DLNA renderer is found.
+Discover and select a Google Cast, DLNA/UPnP, or Amazon Fire TV device (Android only).
+Falls back directly to the native Google Cast chooser when no other device is found.
 
 **Returns:** <code>Promise&lt;<a href="#requestsessionresult">RequestSessionResult</a>&gt;</code>
 
@@ -677,7 +682,7 @@ Open the native Google Cast chooser without scanning for DLNA devices (Android o
 isSessionActive() => Promise<SessionStatusResult>
 ```
 
-Check if there is an active Google Cast or selected DLNA session (Android only)
+Check if there is an active Google Cast, selected DLNA, or selected Fire TV session (Android only)
 
 **Returns:** <code>Promise&lt;<a href="#sessionstatusresult">SessionStatusResult</a>&gt;</code>
 
@@ -705,7 +710,7 @@ Returns an empty object when no DLNA device is selected.
 areDevicesAvailable() => Promise<DevicesAvailableResult>
 ```
 
-Check if there are available Google Cast or DLNA/UPnP devices (Android only)
+Check if there are available Google Cast, DLNA/UPnP, or Fire TV devices (Android only)
 
 **Returns:** <code>Promise&lt;<a href="#devicesavailableresult">DevicesAvailableResult</a>&gt;</code>
 
@@ -718,7 +723,7 @@ Check if there are available Google Cast or DLNA/UPnP devices (Android only)
 loadMedia(options: LoadMediaOptions) => Promise<LoadMediaResult>
 ```
 
-Load public HTTP/HTTPS media on the selected Google Cast or DLNA device (Android only)
+Load public HTTP/HTTPS media on the selected device (Android only)
 
 | Param         | Type                                                          |
 | ------------- | ------------------------------------------------------------- |
@@ -735,7 +740,7 @@ Load public HTTP/HTTPS media on the selected Google Cast or DLNA device (Android
 endSession() => Promise<{ success: boolean; message?: string; }>
 ```
 
-End the current Google Cast or DLNA session (Android only)
+End the current Google Cast, DLNA, or Fire TV session (Android only)
 
 **Returns:** <code>Promise&lt;{ success: boolean; message?: string; }&gt;</code>
 
@@ -865,7 +870,7 @@ Listen to Chromecast events (Android only)
 
 #### PlaybackTransport
 
-<code>'google-cast' | 'dlna'</code>
+<code>'google-cast' | 'dlna' | 'fire-tv'</code>
 
 
 #### ChromecastEventType
