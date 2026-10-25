@@ -1,6 +1,6 @@
 # ionic-chromecast
 
-A Capacitor plugin for integrating Google Cast SDK (Chromecast) with Ionic/Capacitor applications.
+A Capacitor plugin for sending media from Android Ionic/Capacitor apps to Google Cast, DLNA/UPnP televisions, and Amazon Fire TV.
 
 ## Features
 
@@ -11,7 +11,7 @@ A Capacitor plugin for integrating Google Cast SDK (Chromecast) with Ionic/Capac
 - ✅ End active Cast session from app
 - ✅ DLNA/UPnP MediaRenderer discovery on the local network
 - ✅ Public MP4 and HLS playback through UPnP AVTransport
-- 🧪 Amazon Fire TV discovery and playback through its built-in Fling receiver (device validation pending)
+- 🧪 Amazon Fire TV discovery and playback through its built-in Fling receiver (manually tested on one Fire TV Stick)
 - ✅ Android support
 - ✅ Event listeners
 - 🚧 iOS support (coming soon)
@@ -107,7 +107,11 @@ await IonicChromecast.loadMedia({
 
 > DLNA sends public media URLs directly to the television except for HTTPS MP4 on Samsung and HLS streams, which are relayed over the local network. The HLS relay supports complete, unencrypted VOD playlists with same-origin MPEG-TS (`.ts`) segments, including master playlists (the highest-bandwidth variant is selected) and discontinuities. Live playlists, encryption, separate audio renditions, byte-range segments, and initialization maps are not supported. Actual codec/container support depends on the television's media renderer.
 
-> Fire TV MP4 requests normally pass through a local relay on the Android phone with byte-range support. This lets the plugin detect when the receiver requests the new MP4 even if Fling status calls time out; transferred bytes do not by themselves prove decoding or playback. If the relay cannot start, the original MP4 URL is sent. If an HLS origin serves playlists with a generic binary content type, Android starts a separate Fire TV HLS relay that supplies HLS content types. If the HLS relay receives no request after a failed Fling call, the plugin retries the same URL once without closing the relay. The DLNA relay is separate. Previous direct-URL manual testing on one Fire TV Stick confirmed public MP4 and HLS playback, including an R2 HLS stream; the MP4 relay and HLS retry still require on-device testing. Amazon ended standard support for the [Fling SDK](https://www.developer.amazon.com/docs/fling/working-with-built-in-receiver-on-fire-tv.html) in March 2026; this integration uses the archived SDK 1.6.3. The bundled Amazon libraries retain their [license](android/libs/AMAZON_FLING_LICENSE.txt) and [notices](android/libs/AMAZON_FLING_NOTICES.txt).
+Fire TV MP4 requests normally pass through a local relay on the Android phone with byte-range support. This lets the plugin detect when the receiver requests the new MP4 even if Fling status calls time out. If the relay cannot start, the original MP4 URL is sent. An HLS origin that serves playlists with a generic binary content type uses a separate Fire TV HLS relay. If a failed Fling call produced no HLS relay request, the plugin retries the same URL once without closing the relay. The DLNA relay is separate.
+
+Manual tests on one Fire TV Stick confirmed MP4 and HLS playback and switching between them. Fling can still report `Cannot set Url on media device` or time out even when the video plays on the TV. A successful relay transfer confirms that the Stick requested media bytes; it does not prove that playback or decoding succeeded. Check the TV when the plugin reports an unconfirmed load. Other Fire TV models still require testing.
+
+Amazon ended standard support for the [Fling SDK](https://www.developer.amazon.com/docs/fling/working-with-built-in-receiver-on-fire-tv.html) in March 2026. This integration uses the archived SDK 1.6.3. The bundled Amazon libraries retain their [license](android/libs/AMAZON_FLING_LICENSE.txt) and [notices](android/libs/AMAZON_FLING_NOTICES.txt).
 
 ### Adding another Android playback protocol
 

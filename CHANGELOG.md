@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.18] - 2026-10-24
+
+### Documentation
+- Describe the current Google Cast, DLNA/UPnP, and Fire TV transports, including session reuse and local MP4/HLS relays on Android.
+- Add a staged Fire TV manual test for first playback and switching between MP4 and HLS.
+- Record the observed Fling limitation: a media load can report an error or timeout while the TV plays the video. Relay activity confirms a media request, not playback.
+
+### Package metadata
+- Update the package description and keywords for the supported Android transports.
+
 ## [0.0.14] - 2026-10-19
 
 ### Added
