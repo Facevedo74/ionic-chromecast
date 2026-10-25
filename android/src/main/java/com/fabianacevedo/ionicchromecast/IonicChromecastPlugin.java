@@ -7,6 +7,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import android.text.TextUtils;
+import android.app.Activity;
 import com.google.android.gms.cast.CastMediaControlIntent;
 import com.google.android.gms.cast.framework.CastSession;
 import com.google.android.gms.cast.framework.Session;
@@ -130,17 +131,25 @@ public class IonicChromecastPlugin extends Plugin {
         if (!isReady(call)) return;
 
         new Thread(() -> {
-            List<DlnaManager.Device> dlnaDevices = implementation.discoverDlnaDevices(5000);
-            if (getActivity() == null || getActivity().isFinishing()) {
-                JSObject err = new JSObject();
-                err.put("success", false);
-                err.put("message", "Activity is not available");
-                call.reject("Failed to request playback session", err);
-                return;
-            }
+            try {
+                List<DlnaManager.Device> dlnaDevices = implementation.discoverDlnaDevices(5000);
+                Activity activity = getActivity();
+                if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+                    call.reject("Activity is not available");
+                    return;
+                }
 
-            String discoveryReport = implementation.getLastDiscoveryReport();
-            getActivity().runOnUiThread(() -> showPlaybackChooser(call, dlnaDevices, discoveryReport));
+                String discoveryReport = implementation.getLastDiscoveryReport();
+                activity.runOnUiThread(() -> {
+                    if (activity.isFinishing() || activity.isDestroyed()) {
+                        call.reject("Activity is not available");
+                        return;
+                    }
+                    showPlaybackChooser(call, dlnaDevices, discoveryReport);
+                });
+            } catch (Exception e) {
+                call.reject("Failed to discover playback devices: " + e.getMessage());
+            }
         }, "IonicChromecast-DLNA-Discovery").start();
     }
 
@@ -150,7 +159,18 @@ public class IonicChromecastPlugin extends Plugin {
     @PluginMethod
     public void requestCastSession(PluginCall call) {
         if (!isReady(call)) return;
-        getActivity().runOnUiThread(() -> showGoogleCastChooser(call));
+        Activity activity = getActivity();
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+            call.reject("Activity is not available");
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            if (activity.isFinishing() || activity.isDestroyed()) {
+                call.reject("Activity is not available");
+                return;
+            }
+            showGoogleCastChooser(call);
+        });
     }
 
     private boolean isReady(PluginCall call) {
@@ -161,7 +181,7 @@ public class IonicChromecastPlugin extends Plugin {
             call.reject("Failed to request playback session", err);
             return false;
         }
-        if (getActivity() == null || getActivity().isFinishing()) {
+        if (getActivity() == null || getActivity().isFinishing() || getActivity().isDestroyed()) {
             JSObject err = new JSObject();
             err.put("success", false);
             err.put("message", "Activity is not available");
@@ -192,21 +212,25 @@ public class IonicChromecastPlugin extends Plugin {
                         return;
                     }
 
-                    DlnaManager.Device selected = dlnaDevices.get(which - 1);
-                    implementation.selectDlnaDevice(selected);
+                    try {
+                        DlnaManager.Device selected = dlnaDevices.get(which - 1);
+                        implementation.selectDlnaDevice(selected);
 
-                    JSObject event = new JSObject();
-                    event.put("state", "started");
-                    event.put("transport", "dlna");
-                    event.put("deviceName", selected.getName());
-                    notifyListeners("sessionStarted", event);
+                        JSObject event = new JSObject();
+                        event.put("state", "started");
+                        event.put("transport", "dlna");
+                        event.put("deviceName", selected.getName());
+                        notifyListeners("sessionStarted", event);
 
-                    JSObject ret = new JSObject();
-                    ret.put("success", true);
-                    ret.put("message", "DLNA renderer selected");
-                    ret.put("transport", "dlna");
-                    ret.put("deviceName", selected.getName());
-                    call.resolve(ret);
+                        JSObject ret = new JSObject();
+                        ret.put("success", true);
+                        ret.put("message", "DLNA renderer selected");
+                        ret.put("transport", "dlna");
+                        ret.put("deviceName", selected.getName());
+                        call.resolve(ret);
+                    } catch (Exception e) {
+                        call.reject("Failed to select DLNA renderer: " + e.getMessage());
+                    }
                 })
                 .setOnCancelListener(cancelledDialog -> {
                     JSObject ret = new JSObject();
@@ -300,11 +324,15 @@ public class IonicChromecastPlugin extends Plugin {
     @PluginMethod
     public void getDlnaDiagnostics(PluginCall call) {
         new Thread(() -> {
-            JSObject result = new JSObject();
-            for (java.util.Map.Entry<String, String> entry : implementation.getDlnaPlaybackDiagnostics().entrySet()) {
-                result.put(entry.getKey(), entry.getValue());
+            try {
+                JSObject result = new JSObject();
+                for (java.util.Map.Entry<String, String> entry : implementation.getDlnaPlaybackDiagnostics().entrySet()) {
+                    result.put(entry.getKey(), entry.getValue());
+                }
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("Failed to read DLNA diagnostics: " + e.getMessage());
             }
-            call.resolve(result);
         }, "IonicChromecast-DLNA-Diagnostics").start();
     }
 
@@ -359,20 +387,24 @@ public class IonicChromecastPlugin extends Plugin {
         String contentType,
         double duration
     ) {
-        boolean ok = implementation.loadMedia(url, title, subtitle, imageUrl, contentType, duration);
-        JSObject ret = new JSObject();
-        ret.put("success", ok);
-        String transport = implementation.getActiveTransport();
-        if (transport != null) ret.put("transport", transport);
-        String err = implementation.getLastError();
-        if (err != null && !err.isEmpty()) ret.put("error", err);
-        if (ok) {
-            call.resolve(ret);
-        } else {
-            String message = "dlna".equals(transport) && err != null && !err.isEmpty()
-                ? "Failed to load media: " + err
-                : "Failed to load media";
-            call.reject(message, ret);
+        try {
+            boolean ok = implementation.loadMedia(url, title, subtitle, imageUrl, contentType, duration);
+            JSObject ret = new JSObject();
+            ret.put("success", ok);
+            String transport = implementation.getActiveTransport();
+            if (transport != null) ret.put("transport", transport);
+            String err = implementation.getLastError();
+            if (err != null && !err.isEmpty()) ret.put("error", err);
+            if (ok) {
+                call.resolve(ret);
+            } else {
+                String message = "dlna".equals(transport) && err != null && !err.isEmpty()
+                    ? "Failed to load media: " + err
+                    : "Failed to load media";
+                call.reject(message, ret);
+            }
+        } catch (Exception e) {
+            call.reject("Failed to load media: " + e.getMessage());
         }
     }
 
@@ -389,16 +421,20 @@ public class IonicChromecastPlugin extends Plugin {
     }
 
     private void resolveEndSession(PluginCall call) {
-        boolean ended = implementation.endSession();
-        JSObject ret = new JSObject();
-        ret.put("success", ended);
-        String err = implementation.getLastError();
-        if (err != null && !err.isEmpty()) ret.put("error", err);
+        try {
+            boolean ended = implementation.endSession();
+            JSObject ret = new JSObject();
+            ret.put("success", ended);
+            String err = implementation.getLastError();
+            if (err != null && !err.isEmpty()) ret.put("error", err);
 
-        if (ended) {
-            call.resolve(ret);
-        } else {
-            call.reject("Failed to end session", ret);
+            if (ended) {
+                call.resolve(ret);
+            } else {
+                call.reject("Failed to end session", ret);
+            }
+        } catch (Exception e) {
+            call.reject("Failed to end session: " + e.getMessage());
         }
     }
 
@@ -408,11 +444,15 @@ public class IonicChromecastPlugin extends Plugin {
     @PluginMethod
     public void areDevicesAvailable(PluginCall call) {
         new Thread(() -> {
-            boolean available = implementation.areDevicesAvailable();
-            JSObject ret = new JSObject();
-            ret.put("available", available);
-            ret.put("message", implementation.getLastDiscoveryReport());
-            call.resolve(ret);
+            try {
+                boolean available = implementation.areDevicesAvailable();
+                JSObject ret = new JSObject();
+                ret.put("available", available);
+                ret.put("message", implementation.getLastDiscoveryReport());
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("Failed to check playback devices: " + e.getMessage());
+            }
         }, "IonicChromecast-Device-Discovery").start();
     }
 }

@@ -191,7 +191,7 @@ async stopCasting() {
 
 ## Ionic/Angular Player Integration
 
-The following integration mirrors the production player flow used with this plugin. It uses Google's Default Media Receiver application ID (`CC1AD845`) consistently, initializes the SDK only once, waits for the selected Cast session to become active, detects HLS or MP4 content, sends media metadata and retries the load once with a fresh session when necessary.
+The following integration uses Google's Default Media Receiver application ID (`CC1AD845`), initializes the SDK once, and reuses an active Google Cast or DLNA session when loading another video. It opens the device chooser only when there is no active session. A failed media load is reported without disconnecting the selected device.
 
 ### Chromecast service
 
@@ -273,17 +273,15 @@ export class ChromecastService {
       };
 
       const currentSession = await IonicChromecast.isSessionActive();
-      if (currentSession.active) {
-        await IonicChromecast.endSession();
+      if (!currentSession.active) {
+        const session = await requestActiveSession();
+        if (!session.success) return session;
       }
-
-      const session = await requestActiveSession();
-      if (!session.success) return session;
 
       const contentType = metadata?.contentType
         || (url.includes('.m3u8') ? 'application/x-mpegurl' : 'video/mp4');
 
-      const loadMedia = () => IonicChromecast.loadMedia({
+      const result = await IonicChromecast.loadMedia({
         url,
         metadata: {
           title: metadata?.title,
@@ -292,22 +290,7 @@ export class ChromecastService {
           images: metadata?.images
         }
       });
-
-      try {
-        const result = await loadMedia();
-        if (result.success) {
-          return { cancelled: false, ...result };
-        }
-      } catch {
-        // Retry once with a fresh Cast session.
-      }
-
-      await IonicChromecast.endSession();
-      const retrySession = await requestActiveSession();
-      if (!retrySession.success) return retrySession;
-
-      const retry = await loadMedia();
-      return { cancelled: false, ...retry };
+      return { cancelled: false, ...result };
     } catch (error) {
       return {
         success: false,

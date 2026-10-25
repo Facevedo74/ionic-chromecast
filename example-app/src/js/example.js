@@ -17,6 +17,7 @@ const CAST_VIDEOS_SAMPLE_ID = '4F8B3483';          // Receiver demo CAF (solo pa
 // Permite sobreescribir el receiver por query param ?receiverId=XXXX; si no, usa el default seguro
 const queryReceiverId = new URLSearchParams(window.location.search).get('receiverId');
 const DEFAULT_RECEIVER_ID = queryReceiverId || DEFAULT_MEDIA_RECEIVER_ID;
+let sessionActionInProgress = false;
 
 // Initialize Cast SDK when app loads
 window.addEventListener('DOMContentLoaded', async () => {
@@ -132,6 +133,11 @@ window.checkDevices = async () => {
 
 // Start Casting (only shows the Cast chooser dialog to validate device list)
 window.startCasting = async () => {
+    if (sessionActionInProgress) {
+        appendLog('Wait for the current playback action to finish');
+        return;
+    }
+    sessionActionInProgress = true;
     const sessionEl = document.getElementById('sessionStatus');
     sessionEl.textContent = '⏳ Opening Cast chooser...';
     sessionEl.style.color = '#333';
@@ -153,11 +159,18 @@ window.startCasting = async () => {
         sessionEl.style.color = 'orange';
         console.error('requestSession error', e);
         appendLog('requestSession error: ' + (e?.message || e));
+    } finally {
+        sessionActionInProgress = false;
     }
 }
 
 // Play sample video - COMPLETE FLOW: check session, connect if needed, load media
 window.playVideo = async (format = 'mp4') => {
+    if (sessionActionInProgress) {
+        appendLog('A playback action is already in progress');
+        return;
+    }
+    sessionActionInProgress = true;
     const playEl = document.getElementById('playStatus');
     const sessionEl = document.getElementById('sessionStatus');
     playEl.textContent = '⏳ Starting cast flow...';
@@ -216,7 +229,7 @@ window.playVideo = async (format = 'mp4') => {
             appendLog('STEP 3.5: Waiting 2s for session to stabilize...');
             await new Promise(r => setTimeout(r, 2000));
         } else {
-            appendLog('STEP 1: Session already active, skipping connection');
+            appendLog('STEP 1: Reusing the active session; no disconnect or device chooser');
             sessionEl.textContent = `✅ Connected to ${initialSession.deviceName || (initialSession.transport === 'dlna' ? 'DLNA TV' : 'Chromecast')}`;
             sessionEl.style.color = 'green';
         }
@@ -260,10 +273,21 @@ window.playVideo = async (format = 'mp4') => {
         }
         
     } catch (e) {
-        playEl.textContent = '⚠️ Error in cast flow';
+        playEl.textContent = '⚠️ Could not load video: ' + (e?.message || e);
         playEl.style.color = 'orange';
         console.error('playVideo error', e);
         appendLog('❌ EXCEPTION: ' + (e?.message || e));
+        try {
+            const current = await IonicChromecast.isSessionActive();
+            sessionEl.textContent = current.active
+                ? `✅ Session retained on ${current.deviceName || (current.transport === 'dlna' ? 'DLNA TV' : 'Chromecast')}`
+                : '❌ No active session; select a device to retry';
+            sessionEl.style.color = current.active ? 'green' : 'red';
+        } catch (statusError) {
+            appendLog('Could not read session status: ' + (statusError?.message || statusError));
+        }
+    } finally {
+        sessionActionInProgress = false;
     }
 }
 
@@ -282,6 +306,11 @@ window.readDlnaDiagnostics = async () => {
 
 // Stop active Cast session
 window.stopCasting = async () => {
+    if (sessionActionInProgress) {
+        appendLog('Wait for the current playback action to finish');
+        return;
+    }
+    sessionActionInProgress = true;
     const sessionEl = document.getElementById('sessionStatus');
     const playEl = document.getElementById('playStatus');
     sessionEl.textContent = '⏳ Ending session...';
@@ -302,5 +331,7 @@ window.stopCasting = async () => {
         appendLog('stopCasting error: ' + (e?.message || e));
         sessionEl.textContent = '⚠️ Error ending session';
         sessionEl.style.color = 'orange';
+    } finally {
+        sessionActionInProgress = false;
     }
 }
