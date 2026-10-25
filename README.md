@@ -62,7 +62,7 @@ npx cap sync android
 - Chromecast device on the same WiFi network
 - DLNA/UPnP televisions must expose a `MediaRenderer` with the `AVTransport` service
 - DLNA media URLs must be public HTTP/HTTPS URLs; authentication headers and DRM are not supported
-- Fire TV playback requires a Fire TV device with the built-in Amazon Fling receiver and a media URL reachable from that device
+- Fire TV playback requires a Fire TV device with the built-in Amazon Fling receiver. For MP4, the Android phone must reach the media URL and the Fire TV must reach the phone over Wi-Fi.
 
 ## Google Cast, DLNA/UPnP, and Fire TV
 
@@ -71,7 +71,7 @@ npx cap sync android
 - If no DLNA television or Fire TV is found, the native Google Cast chooser opens directly as before.
 - If another device is found, the plugin displays a chooser containing **Chromecast / Android TV (Google Cast)**, compatible **DLNA / UPnP** televisions, and discovered **Amazon Fire TV** devices.
 - Selecting a DLNA television marks the playback session as active. The existing `loadMedia()` call then sends `SetAVTransportURI` followed by `Play` through UPnP AVTransport.
-- Selecting a Fire TV uses its built-in receiver (`amzn.thin.pl`). `loadMedia()` sends the media URL and metadata through Amazon Fling; sending another video reuses the selected device.
+- Selecting a Fire TV uses its built-in receiver (`amzn.thin.pl`). `loadMedia()` sends metadata and a local MP4 relay URL or HLS URL through Amazon Fling; sending another video reuses the selected device.
 - `requestCastSession()` bypasses DLNA and Fire TV discovery and opens the original Google Cast chooser immediately.
 - The `deviceChooserShown` listener event fires when either native device picker becomes visible, allowing apps to dismiss loading indicators without blocking the chooser.
 
@@ -107,7 +107,7 @@ await IonicChromecast.loadMedia({
 
 > DLNA sends public media URLs directly to the television except for HTTPS MP4 on Samsung and HLS streams, which are relayed over the local network. The HLS relay supports complete, unencrypted VOD playlists with same-origin MPEG-TS (`.ts`) segments, including master playlists (the highest-bandwidth variant is selected) and discontinuities. Live playlists, encryption, separate audio renditions, byte-range segments, and initialization maps are not supported. Actual codec/container support depends on the television's media renderer.
 
-> Fire TV normally receives the original URL. If an HLS origin serves playlists with a generic binary content type, Android starts a Fire TV-only local relay that supplies HLS content types. The DLNA relay is separate. Manual testing on one Fire TV Stick confirmed public MP4 and HLS playback, including an R2 HLS stream; other models still require device testing. Amazon ended standard support for the [Fling SDK](https://www.developer.amazon.com/docs/fling/working-with-built-in-receiver-on-fire-tv.html) in March 2026; this integration uses the archived SDK 1.6.3. The bundled Amazon libraries retain their [license](android/libs/AMAZON_FLING_LICENSE.txt) and [notices](android/libs/AMAZON_FLING_NOTICES.txt).
+> Fire TV MP4 requests normally pass through a local relay on the Android phone with byte-range support. This lets the plugin detect when the receiver requests the new MP4 even if Fling status calls time out; transferred bytes do not by themselves prove decoding or playback. If the relay cannot start, the original MP4 URL is sent. If an HLS origin serves playlists with a generic binary content type, Android starts a separate Fire TV HLS relay that supplies HLS content types. If the HLS relay receives no request after a failed Fling call, the plugin retries the same URL once without closing the relay. The DLNA relay is separate. Previous direct-URL manual testing on one Fire TV Stick confirmed public MP4 and HLS playback, including an R2 HLS stream; the MP4 relay and HLS retry still require on-device testing. Amazon ended standard support for the [Fling SDK](https://www.developer.amazon.com/docs/fling/working-with-built-in-receiver-on-fire-tv.html) in March 2026; this integration uses the archived SDK 1.6.3. The bundled Amazon libraries retain their [license](android/libs/AMAZON_FLING_LICENSE.txt) and [notices](android/libs/AMAZON_FLING_NOTICES.txt).
 
 ### Adding another Android playback protocol
 

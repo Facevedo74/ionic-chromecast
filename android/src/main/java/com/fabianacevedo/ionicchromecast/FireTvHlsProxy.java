@@ -101,6 +101,10 @@ final class FireTvHlsProxy {
         return mediaBytes.get() > 0;
     }
 
+    boolean hasReceivedRequest() {
+        return requests.get() > 0;
+    }
+
     void close() {
         closed = true;
         try {
